@@ -6,7 +6,7 @@ export type Currency = z.infer<typeof CurrencySchema>;
 
 export const EXPENSE_CATEGORIES = [
   "🍺 Pivo & Bar",
-  "FC Gastro & Jídlo",
+  "🍜 Gastro & Jídlo",
   "🚕 Doprava",
   "🏨 Ubytování",
   "🎟️ Zážitky",
