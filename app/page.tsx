@@ -9,6 +9,7 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { parseAIExpense } from "@/app/actions/parseExpense";
 import {
   Currency,
   Expense,
@@ -38,21 +39,17 @@ const EXCHANGE_RATES: Record<Currency, number> = {
   CZK: 1,
 };
 
-const CURRENCY_FLAGS: Record<Currency, string> = {
-  VND: "🇻🇳 VND",
-  THB: "🇹🇭 THB",
-  LAK: "🇱🇦 LAK",
-  USD: "🇺🇸 USD",
-  CZK: "🇨🇿 CZK",
-};
-
 export default function AsiaTravelWallet() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Form states
+  // Stavové proměnné pro AI vstup
+  const [aiInputText, setAiInputText] = useState<string>("");
+  const [aiLoading, setAiLoading] = useState<boolean>(false);
+
+  // Stavové proměnné pro ruční formulář
   const [amountOriginal, setAmountOriginal] = useState<string>("");
   const [currency, setCurrency] = useState<Currency>("VND");
   const [note, setNote] = useState<string>("");
@@ -94,15 +91,40 @@ export default function AsiaTravelWallet() {
     return () => unsubscribe();
   }, []);
 
-  // Živý orientační přepočet na CZK pro náhled
-  const previewAmountCZK = amountOriginal && !isNaN(Number(amountOriginal))
-    ? Math.round(Number(amountOriginal) * (EXCHANGE_RATES[currency] ?? 1) * 100) / 100
-    : 0;
+  // Živý orientační přepočet na CZK pro náhled ručního formuláře
+  const previewAmountCZK =
+    amountOriginal && !isNaN(Number(amountOriginal))
+      ? Math.round(Number(amountOriginal) * (EXCHANGE_RATES[currency] ?? 1) * 100) / 100
+      : 0;
 
   // Celkový součet v CZK
   const totalCZK = expenses.reduce((acc, curr) => acc + (curr.amountCZK || 0), 0);
 
-  // Odeslání formuláře
+  // Odeslání AI vstupu
+  const handleAISubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!aiInputText.trim() || aiLoading) return;
+
+    setAiLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const parsedExpense = await parseAIExpense(aiInputText);
+      await addDoc(collection(db, "expenses"), parsedExpense);
+      setAiInputText("");
+    } catch (error) {
+      console.error("Chyba při zpracování AI výdaje:", error);
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Nepodařilo se zpracovat výdaj pomocí AI."
+      );
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  // Ruční odeslání formuláře
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -226,11 +248,66 @@ export default function AsiaTravelWallet() {
           </div>
         )}
 
-        {/* FORMULÁŘ PRO ZADÁNÍ VÝDAJE */}
+        {/* AI RYCHLÝ ZÁZNAM */}
+        <section className="relative overflow-hidden rounded-3xl border border-emerald-500/30 bg-gradient-to-br from-emerald-950/40 via-slate-900/60 to-teal-950/40 p-6 sm:p-7 backdrop-blur-xl shadow-2xl shadow-emerald-950/30">
+          <div className="pointer-events-none absolute -top-12 -right-12 h-32 w-32 rounded-full bg-emerald-500/15 blur-2xl" />
+
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-inner">
+                <Sparkles className="h-5 w-5 animate-pulse" />
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                  AI rychlý záznam
+                  <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950">
+                    Gemini
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Napište výdaj volnou řečí a AI rozpozná částku, měnu i kategorii.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <form onSubmit={handleAISubmit} className="flex flex-col gap-3">
+            <div className="relative">
+              <input
+                type="text"
+                disabled={aiLoading}
+                value={aiInputText}
+                onChange={(e) => setAiInputText(e.target.value)}
+                placeholder="Napište výdaj volnou řečí... (např. 150k pivo v baru Bia Hoi nebo 80 THB pad thai)"
+                className="w-full rounded-2xl border border-emerald-500/30 bg-slate-950/60 px-4 py-3.5 pr-12 text-sm sm:text-base text-white placeholder-slate-500 outline-none transition focus:border-emerald-400 focus:bg-slate-950/80 focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-50"
+              />
+              <Sparkles className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-400/60" />
+            </div>
+
+            <button
+              type="submit"
+              disabled={aiLoading || !aiInputText.trim()}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 px-5 py-3 text-sm sm:text-base font-bold text-slate-950 shadow-lg shadow-emerald-500/20 transition-all hover:opacity-95 hover:shadow-emerald-500/30 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {aiLoading ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Gemini AI zpracovává výdaj...</span>
+                </>
+              ) : (
+                <>
+                  <span>⚡ Zapsat přes AI</span>
+                </>
+              )}
+            </button>
+          </form>
+        </section>
+
+        {/* RUČNÍ FORMULÁŘ PRO ZADÁNÍ VÝDAJE */}
         <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 sm:p-7 backdrop-blur-xl shadow-xl">
           <div className="flex items-center gap-2 mb-6">
             <Plus className="h-5 w-5 text-emerald-400" />
-            <h2 className="text-lg font-semibold text-white">Zadat nový výdaj</h2>
+            <h2 className="text-lg font-semibold text-white">Ruční zadání výdaje</h2>
           </div>
 
           <form onSubmit={handleManualSubmit} className="flex flex-col gap-5">
@@ -359,7 +436,7 @@ export default function AsiaTravelWallet() {
               ) : (
                 <>
                   <Sparkles className="h-5 w-5" />
-                  <span>Přidat výdaj</span>
+                  <span>Přidat výdaj ručně</span>
                 </>
               )}
             </button>
@@ -388,7 +465,7 @@ export default function AsiaTravelWallet() {
               <Receipt className="h-10 w-10 text-slate-600 mb-3" />
               <p className="text-base font-medium text-slate-300">Zatím žádné výdaje</p>
               <p className="text-xs text-slate-500 mt-1 max-w-xs">
-                Použij formulář výše k zapsání prvního nákupu, jídla nebo lístku v Asii.
+                Použij AI vstup nebo formulář výše k zapsání prvního nákupu, jídla nebo lístku v Asii.
               </p>
             </div>
           ) : (
