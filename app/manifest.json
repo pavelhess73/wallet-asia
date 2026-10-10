@@ -1,0 +1,26 @@
+{
+  "name": "Asia Travel Wallet",
+  "short_name": "Travel Wallet",
+  "description": "Sleduj cestovní výdaje z Asie v reálném čase s AI rozpoznáváním",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "lang": "cs",
+  "categories": ["finance", "travel"],
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
