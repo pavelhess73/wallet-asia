@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import Link from "next/link";
 import {
   collection,
   addDoc,
@@ -811,16 +812,13 @@ export default function AsiaTravelWallet() {
               <span className="text-[10px]">Entries</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab("stats")}
-              className={`flex flex-col items-center gap-0.5 transition-colors ${
-                activeTab === "stats" ? "text-rose-600 font-bold" : "text-slate-400 hover:text-slate-600"
-              }`}
+            <Link
+              href="/stats"
+              className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-rose-600 transition-colors"
             >
               <BarChart3 className="h-5 w-5" />
               <span className="text-[10px]">Stats</span>
-            </button>
+            </Link>
 
             <button
               type="button"
