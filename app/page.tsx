@@ -5,6 +5,9 @@ import Link from "next/link";
 import {
   collection,
   addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
   query,
   orderBy,
   onSnapshot,
@@ -36,6 +39,8 @@ import {
   Map,
   Search,
   MapPin,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 
 // Orientační kurzy: 1000 VND = 0.95 CZK, 1 THB = 0.68 CZK, 1000 LAK = 1.1 CZK, 1 USD = 23 CZK, 1 CZK = 1 CZK
@@ -203,10 +208,11 @@ export default function AsiaTravelWallet() {
   const [aiInputText, setAiInputText] = useState<string>("");
   const [aiLoading, setAiLoading] = useState<boolean>(false);
 
-  // Stav pro modální okno ručního formuláře
+  // Stav pro modální okno formuláře (přidání i editace)
   const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
 
-  // Stavové proměnné pro ruční formulář
+  // Stavové proměnné pro formulář
   const [amountOriginal, setAmountOriginal] = useState<string>("");
   const [currency, setCurrency] = useState<Currency>("VND");
   const [note, setNote] = useState<string>("");
@@ -388,6 +394,44 @@ export default function AsiaTravelWallet() {
     setTimeout(() => setSuccessToast(null), 3500);
   };
 
+  // Otevření modálu pro nový výdaj
+  const handleOpenCreate = () => {
+    setEditingExpense(null);
+    setAmountOriginal("");
+    setCurrency("VND");
+    setNote("");
+    setMerchant("");
+    setManualCategory("Restaurants");
+    setIsManualModalOpen(true);
+  };
+
+  // Otevření modálu pro úpravu existujícího výdaje
+  const handleOpenEdit = (expense: Expense) => {
+    setEditingExpense(expense);
+    setAmountOriginal(expense.amountOriginal.toString());
+    setCurrency(expense.currency);
+    setNote(expense.note);
+    setMerchant(expense.merchant || "");
+    const meta = getCategoryMeta(expense.category);
+    setManualCategory(meta.id);
+    setIsManualModalOpen(true);
+  };
+
+  // Mazání výdaje z Firestore
+  const handleDelete = async (id?: string) => {
+    if (!id) return;
+    const confirmed = window.confirm("Opravdu chcete tento výdaj smazat?");
+    if (!confirmed) return;
+
+    try {
+      await deleteDoc(doc(db, "expenses", id));
+      showSuccess("Výdaj byl smazán");
+    } catch (err) {
+      console.error("Chyba při mazání výdaje:", err);
+      setErrorMessage("Nepodařilo se smazat výdaj.");
+    }
+  };
+
   // Odeslání AI vstupu
   const handleAISubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -413,7 +457,7 @@ export default function AsiaTravelWallet() {
     }
   };
 
-  // Ruční odeslání formuláře
+  // Odeslání formuláře (nový záznam i aktualizace existujícího)
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -435,27 +479,50 @@ export default function AsiaTravelWallet() {
       const rate = EXCHANGE_RATES[currency] ?? 1;
       const calculatedCZK = Math.round(numericAmount * rate * 100) / 100;
 
-      const expensePayload: Record<string, unknown> = {
-        amountOriginal: numericAmount,
-        currency,
-        amountCZK: calculatedCZK,
-        category: manualCategory,
-        note: note.trim(),
-        createdAt: new Date().toISOString(),
-      };
+      if (editingExpense && editingExpense.id) {
+        // AKTUALIZACE EXISTUJÍCÍHO VÝDAJE
+        const expenseRef = doc(db, "expenses", editingExpense.id);
+        const updatePayload: Record<string, unknown> = {
+          amountOriginal: numericAmount,
+          currency,
+          amountCZK: calculatedCZK,
+          category: manualCategory,
+          note: note.trim(),
+        };
 
-      if (merchant.trim()) {
-        expensePayload.merchant = merchant.trim();
+        if (merchant.trim()) {
+          updatePayload.merchant = merchant.trim();
+        } else {
+          updatePayload.merchant = "";
+        }
+
+        await updateDoc(expenseRef, updatePayload);
+        showSuccess(`Výdaj upraven: ${note.trim()} (${formatNumber(calculatedCZK)} Kč)`);
+      } else {
+        // PŘIDÁNÍ NOVÉHO VÝDAJE
+        const expensePayload: Record<string, unknown> = {
+          amountOriginal: numericAmount,
+          currency,
+          amountCZK: calculatedCZK,
+          category: manualCategory,
+          note: note.trim(),
+          createdAt: new Date().toISOString(),
+        };
+
+        if (merchant.trim()) {
+          expensePayload.merchant = merchant.trim();
+        }
+
+        await addDoc(collection(db, "expenses"), expensePayload);
+        showSuccess(`Přidán výdaj: ${note.trim()} (${formatNumber(calculatedCZK)} Kč)`);
       }
-
-      await addDoc(collection(db, "expenses"), expensePayload);
 
       // Vyčištění a zavření
       setAmountOriginal("");
       setNote("");
       setMerchant("");
+      setEditingExpense(null);
       setIsManualModalOpen(false);
-      showSuccess(`Přidán výdaj: ${note.trim()} (${formatNumber(calculatedCZK)} Kč)`);
     } catch (error) {
       console.error("Chyba při ukládání výdaje:", error);
       setErrorMessage("Chyba při ukládání do Firestore. Zkontrolujte připojení.");
@@ -596,10 +663,11 @@ export default function AsiaTravelWallet() {
                       return (
                         <div
                           key={expense.id ?? `${expense.createdAt}-${expense.note}`}
-                          className="p-3.5 flex items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
+                          onClick={() => handleOpenEdit(expense)}
+                          className="p-3.5 flex items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors cursor-pointer group"
                         >
                           {/* Levá část: Kulatá ikona kategorie + popisy */}
-                          <div className="flex items-center gap-3 min-w-0">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
                             {/* Kulatá ikona kategorie */}
                             <div
                               className={`h-10 w-10 rounded-full flex items-center justify-center shrink-0 ${meta.circleBg}`}
@@ -608,8 +676,8 @@ export default function AsiaTravelWallet() {
                             </div>
 
                             {/* Popis a detail */}
-                            <div className="min-w-0">
-                              <p className="text-sm font-bold text-slate-900 truncate">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-bold text-slate-900 truncate group-hover:text-rose-600 transition-colors">
                                 {expense.note}
                               </p>
                               <div className="flex items-center gap-1.5 text-[11px] text-slate-400 truncate mt-0.5">
@@ -634,8 +702,8 @@ export default function AsiaTravelWallet() {
                             </div>
                           </div>
 
-                          {/* Pravá část: Částka v CZK */}
-                          <div className="text-right shrink-0">
+                          {/* Pravá část: Částka v CZK + Ikony Edit & Delete */}
+                          <div className="text-right shrink-0 flex flex-col items-end">
                             <div className="text-sm font-black text-slate-900 tracking-tight">
                               {formatNumber(expense.amountCZK)} Kč
                             </div>
@@ -644,6 +712,32 @@ export default function AsiaTravelWallet() {
                                 {formatNumber(expense.amountOriginal, 0)} {expense.currency}
                               </div>
                             )}
+
+                            {/* Akční tlačítka pro Úpravu & Smazání */}
+                            <div className="flex items-center gap-1 mt-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenEdit(expense);
+                                }}
+                                className="p-1 rounded-md text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+                                title="Upravit výdaj"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(expense.id);
+                                }}
+                                className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                title="Smazat výdaj"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -737,12 +831,30 @@ export default function AsiaTravelWallet() {
                 <p className="text-xs text-slate-400 text-center py-6">Nenalezen žádný odpovídající výdaj</p>
               ) : (
                 searchResults.map((exp) => (
-                  <div key={exp.id} className="p-3 flex items-center justify-between text-xs">
+                  <div
+                    key={exp.id}
+                    onClick={() => handleOpenEdit(exp)}
+                    className="p-3 flex items-center justify-between text-xs hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
                     <div>
                       <div className="font-bold text-slate-900">{exp.note}</div>
-                      <div className="text-[11px] text-slate-400">{exp.category} {exp.merchant ? `• ${exp.merchant}` : ""}</div>
+                      <div className="text-[11px] text-slate-400">
+                        {exp.category} {exp.merchant ? `• ${exp.merchant}` : ""}
+                      </div>
                     </div>
-                    <div className="font-bold text-slate-900">{formatNumber(exp.amountCZK)} Kč</div>
+                    <div className="flex items-center gap-2">
+                      <div className="font-bold text-slate-900">{formatNumber(exp.amountCZK)} Kč</div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(exp.id);
+                        }}
+                        className="p-1 rounded-md text-slate-400 hover:text-rose-600 transition-colors"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
@@ -789,9 +901,9 @@ export default function AsiaTravelWallet() {
             {/* Kulaté tlačítko + pro otevření ručního formuláře */}
             <button
               type="button"
-              onClick={() => setIsManualModalOpen(true)}
+              onClick={handleOpenCreate}
               className="h-12 w-12 rounded-full bg-slate-900 hover:bg-slate-800 text-white shadow-xl shadow-slate-900/25 flex items-center justify-center shrink-0 transition-transform active:scale-95 cursor-pointer"
-              title="Přidat ručně / Vybrat kategorii"
+              title="Přidat nový výdaj ručně"
             >
               <Plus className="h-6 w-6 stroke-[2.3]" />
             </button>
@@ -845,7 +957,7 @@ export default function AsiaTravelWallet() {
         </nav>
       </div>
 
-      {/* MODÁLNÍ LIST / BOTTOM SHEET PRO RUČNÍ FORMULÁŘ & KATEGORIE */}
+      {/* MODÁLNÍ LIST / BOTTOM SHEET PRO RUČNÍ FORMULÁŘ & ÚPRAVU */}
       {isManualModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/40 backdrop-blur-xs p-0 sm:p-4">
           <div
@@ -856,14 +968,19 @@ export default function AsiaTravelWallet() {
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div>
                 <h3 className="text-base sm:text-lg font-black text-slate-900">
-                  Nový výdaj
+                  {editingExpense ? "Upravit výdaj" : "Nový výdaj"}
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Zadejte částku a zvolte kategorii
+                  {editingExpense
+                    ? "Upravte částku, měnu, popis nebo kategorii"
+                    : "Zadejte částku a zvolte kategorii"}
                 </p>
               </div>
               <button
-                onClick={() => setIsManualModalOpen(false)}
+                onClick={() => {
+                  setIsManualModalOpen(false);
+                  setEditingExpense(null);
+                }}
                 className="h-8 w-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors"
               >
                 <X className="h-4 w-4" />
@@ -996,8 +1113,17 @@ export default function AsiaTravelWallet() {
                   </>
                 ) : (
                   <>
-                    <Plus className="h-4 w-4 stroke-[2.5]" />
-                    <span>Uložit výdaj</span>
+                    {editingExpense ? (
+                      <>
+                        <Pencil className="h-4 w-4" />
+                        <span>Uložit změny</span>
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="h-4 w-4 stroke-[2.5]" />
+                        <span>Uložit výdaj</span>
+                      </>
+                    )}
                   </>
                 )}
               </button>
