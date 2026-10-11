@@ -122,9 +122,10 @@ Důkladně analyzuj přiloženou fotografii účtenky a extrahuj následující 
    - '🛒 Ostatní' (potraviny ze 7-Eleven, drogérie, suvenýry, nákupy)
 5. 'note': Stručný výstižný český popis nákupu (např. 'Oběd v restauraci', 'Nákup v 7-Eleven', 'Káva a dezert', 'Lístek na vlak').`;
 
+  // gemini-2.5-flash = primární; gemini-3.8-flash = fallback doporučený API
   const candidateModels = [
     "gemini-2.5-flash",
-    "gemini-2.0-flash",
+    "gemini-3.8-flash",
   ];
 
   let rawJsonText: string | null = null;
