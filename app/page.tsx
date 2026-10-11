@@ -196,11 +196,17 @@ function getCategoryMeta(catName: string) {
 }
 
 export default function AsiaTravelWallet() {
+  const [isMounted, setIsMounted] = useState<boolean>(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  // Zamezení Hydration Mismatch – komponenta se plně vykreslí až po mountu v prohlížeči
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Aktivní záložka spodní navigace: Entries | Stats | Map | Search
   const [activeTab, setActiveTab] = useState<"entries" | "stats" | "map" | "search">("entries");
@@ -573,6 +579,11 @@ export default function AsiaTravelWallet() {
       setIsSubmitting(false);
     }
   };
+
+  // Dokud není komponenta namountována v prohlížeči, zamezíme vykreslení pro vyloučení Hydration Mismatch
+  if (!isMounted) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-[#F8F6F4] text-slate-800 antialiased selection:bg-rose-500/20 pb-44">
