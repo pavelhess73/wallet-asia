@@ -202,6 +202,9 @@ export default function MainWallet() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
+  // GPS poloha – automaticky vyžádaná při mountu
+  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
+
   // Aktivní záložka spodní navigace: Entries | Stats | Map | Search
   const [activeTab, setActiveTab] = useState<"entries" | "stats" | "map" | "search">("entries");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -223,6 +226,20 @@ export default function MainWallet() {
   const [merchant, setMerchant] = useState<string>("");
   const [manualCategory, setManualCategory] = useState<string>("Restaurants");
 
+  // Vyžádání GPS polohy při mountu (tiché – nezobrazuje chybu uživateli)
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      },
+      () => {
+        // Oprávnění zamítnuto nebo poloha nedostupná – ignorujeme tiše
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
+  }, []);
+
   // Real-time listener pro kolekci expenses seřazenou podle createdAt sestupně
   useEffect(() => {
     setIsLoading(true);
@@ -242,6 +259,10 @@ export default function MainWallet() {
             note: data.note || "",
             merchant: data.merchant || undefined,
             createdAt: data.createdAt || new Date().toISOString(),
+            location:
+              data.location?.lat != null && data.location?.lng != null
+                ? { lat: Number(data.location.lat), lng: Number(data.location.lng) }
+                : undefined,
           };
         });
 
@@ -456,7 +477,10 @@ export default function MainWallet() {
         base64,
         file.type || "image/jpeg"
       );
-      await addDoc(collection(db, "expenses"), parsedReceipt);
+      const receiptPayload = currentLocation
+        ? { ...parsedReceipt, location: currentLocation }
+        : parsedReceipt;
+      await addDoc(collection(db, "expenses"), receiptPayload);
       showSuccess(
         `Účtenka načtena: ${parsedReceipt.merchant ? `${parsedReceipt.merchant} – ` : ""}${parsedReceipt.note} (${formatNumber(parsedReceipt.amountCZK)} Kč)`
       );
@@ -485,7 +509,10 @@ export default function MainWallet() {
 
     try {
       const parsedExpense = await parseAIExpense(aiInputText);
-      await addDoc(collection(db, "expenses"), parsedExpense);
+      const payload = currentLocation
+        ? { ...parsedExpense, location: currentLocation }
+        : parsedExpense;
+      await addDoc(collection(db, "expenses"), payload);
       setAiInputText("");
       showSuccess(`Uloženo: ${parsedExpense.note} (${formatNumber(parsedExpense.amountCZK)} Kč)`);
     } catch (error) {
@@ -554,6 +581,10 @@ export default function MainWallet() {
 
         if (merchant.trim()) {
           expensePayload.merchant = merchant.trim();
+        }
+
+        if (currentLocation) {
+          expensePayload.location = currentLocation;
         }
 
         await addDoc(collection(db, "expenses"), expensePayload);

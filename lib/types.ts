@@ -32,6 +32,12 @@ export const EXPENSE_CATEGORIES = [
 ] as const;
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
 
+export const LocationSchema = z.object({
+  lat: z.number(),
+  lng: z.number(),
+});
+export type Location = z.infer<typeof LocationSchema>;
+
 export const ExpenseSchema = z.object({
   id: z.string().optional(),
   amountOriginal: z.number(),
@@ -41,6 +47,7 @@ export const ExpenseSchema = z.object({
   note: z.string(),
   merchant: z.string().optional(),
   createdAt: z.string(),
+  location: LocationSchema.optional(),
 });
 
 export type Expense = z.infer<typeof ExpenseSchema>;
