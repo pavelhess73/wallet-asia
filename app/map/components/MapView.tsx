@@ -5,33 +5,22 @@ import { useEffect, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
 import Link from "next/link";
-import {
-  collection,
-  query,
-  orderBy,
-  onSnapshot,
-} from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Currency, Expense } from "@/lib/types";
-import {
-  BarChart3,
-  List,
-  Map,
-  Search,
-  Loader2,
-  MapPin,
-} from "lucide-react";
+import { BarChart3, List, Map, Search, Loader2, MapPin } from "lucide-react";
 
-// ─── Oprava výchozích ikon Leafletu v Next.js (webpack tree-shaking) ──────────
-delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
+// ─── Oprava Leaflet default-icon bugu v Next.js ────────────────────────────────
+// Webpack odstraní _getIconUrl z prototypu, musíme ho obnovit ručně.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  iconRetinaUrl:
-    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+  iconUrl:        "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  iconRetinaUrl:  "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  shadowUrl:      "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
-// Barevná tečka jako custom ikona markeru
+// ─── Barevná tečka místo výchozího markeru ────────────────────────────────────
 function createDotIcon(color: string) {
   return L.divIcon({
     className: "",
@@ -40,47 +29,47 @@ function createDotIcon(color: string) {
       background:${color};
       border:2.5px solid #fff;
       border-radius:50%;
-      box-shadow:0 1px 6px rgba(0,0,0,.35);
+      box-shadow:0 2px 6px rgba(0,0,0,.4);
     "></div>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
-    popupAnchor: [0, -10],
+    iconSize:    [14, 14],
+    iconAnchor:  [7, 7],
+    popupAnchor: [0, -12],
   });
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
   transportation: "#f97316",
-  restaurants: "#f43f5e",
-  drinks: "#a855f7",
-  coffee: "#92400e",
-  groceries: "#10b981",
-  accommodation: "#3b82f6",
-  flights: "#0ea5e9",
+  restaurants:    "#f43f5e",
+  drinks:         "#a855f7",
+  coffee:         "#92400e",
+  groceries:      "#10b981",
+  accommodation:  "#3b82f6",
+  flights:        "#0ea5e9",
 };
 
 function getCategoryColor(cat: string): string {
-  const norm = (cat || "").toLowerCase();
-  if (norm.includes("transport") || norm.includes("doprav") || norm.includes("taxi"))
+  const n = (cat || "").toLowerCase();
+  if (n.includes("transport") || n.includes("doprav") || n.includes("taxi") || n.includes("grab"))
     return CATEGORY_COLORS.transportation;
-  if (norm.includes("restaurant") || norm.includes("gastro") || norm.includes("jidlo") || norm.includes("jídlo"))
+  if (n.includes("restaurant") || n.includes("gastro") || n.includes("jídlo") || n.includes("jidlo"))
     return CATEGORY_COLORS.restaurants;
-  if (norm.includes("drink") || norm.includes("pivo") || norm.includes("bar"))
+  if (n.includes("drink") || n.includes("pivo") || n.includes("bar") || n.includes("alkohol"))
     return CATEGORY_COLORS.drinks;
-  if (norm.includes("coffee") || norm.includes("kav") || norm.includes("kav") || norm.includes("cafe"))
+  if (n.includes("coffee") || n.includes("káv") || n.includes("kav") || n.includes("cafe"))
     return CATEGORY_COLORS.coffee;
-  if (norm.includes("grocer") || norm.includes("nakup") || norm.includes("market"))
+  if (n.includes("grocer") || n.includes("nákup") || n.includes("nakup") || n.includes("market"))
     return CATEGORY_COLORS.groceries;
-  if (norm.includes("accommodat") || norm.includes("ubytov") || norm.includes("hotel"))
+  if (n.includes("accommodat") || n.includes("ubytov") || n.includes("hotel") || n.includes("hostel"))
     return CATEGORY_COLORS.accommodation;
-  if (norm.includes("flight") || norm.includes("letenk"))
+  if (n.includes("flight") || n.includes("letenk"))
     return CATEGORY_COLORS.flights;
   return "#64748b";
 }
 
-const formatCZK = (val: number) =>
-  new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 0 }).format(val);
+const fmt = (v: number) =>
+  new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 0 }).format(v);
 
-// ─── Hlavní komponenta ────────────────────────────────────────────────────────
+// ─── Komponenta ───────────────────────────────────────────────────────────────
 export default function MapView() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -90,24 +79,25 @@ export default function MapView() {
     const unsub = onSnapshot(
       q,
       (snap) => {
-        const data: Expense[] = snap.docs.map((d) => {
-          const raw = d.data();
-          return {
-            id: d.id,
-            amountOriginal: Number(raw.amountOriginal) || 0,
-            currency: (raw.currency as Currency) || "CZK",
-            amountCZK: Number(raw.amountCZK) || 0,
-            category: raw.category || "Ostatní",
-            note: raw.note || "",
-            merchant: raw.merchant || undefined,
-            createdAt: raw.createdAt || new Date().toISOString(),
-            location:
-              raw.location?.lat != null && raw.location?.lng != null
-                ? { lat: Number(raw.location.lat), lng: Number(raw.location.lng) }
-                : undefined,
-          };
-        });
-        setExpenses(data);
+        setExpenses(
+          snap.docs.map((d) => {
+            const r = d.data();
+            return {
+              id: d.id,
+              amountOriginal: Number(r.amountOriginal) || 0,
+              currency: (r.currency as Currency) || "CZK",
+              amountCZK: Number(r.amountCZK) || 0,
+              category: r.category || "Ostatní",
+              note: r.note || "",
+              merchant: r.merchant || undefined,
+              createdAt: r.createdAt || new Date().toISOString(),
+              location:
+                r.location?.lat != null && r.location?.lng != null
+                  ? { lat: Number(r.location.lat), lng: Number(r.location.lng) }
+                  : undefined,
+            };
+          })
+        );
         setIsLoading(false);
       },
       () => setIsLoading(false)
@@ -138,76 +128,76 @@ export default function MapView() {
         )}
       </header>
 
-      {/* Mapa */}
-      <div
-        className="flex-1 relative mx-4 mb-4 rounded-2xl overflow-hidden shadow-sm border border-slate-200"
-        style={{ minHeight: "60vh" }}
-      >
-        {isLoading ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-50">
-            <Loader2 className="h-7 w-7 animate-spin text-rose-500" />
-          </div>
-        ) : mapped.length === 0 ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-50 text-slate-400 p-6 text-center">
-            <div className="h-14 w-14 rounded-full bg-slate-100 flex items-center justify-center">
-              <MapPin className="h-7 w-7" />
+      {/* ── MAPA (fixní výška 450px) ── */}
+      <div className="max-w-md mx-auto w-full px-4 sm:max-w-lg">
+        <div className="w-full h-[450px] rounded-2xl overflow-hidden shadow-sm border border-slate-100">
+          {isLoading ? (
+            <div className="w-full h-full flex items-center justify-center bg-slate-50">
+              <Loader2 className="h-7 w-7 animate-spin text-rose-500" />
             </div>
-            <p className="text-sm font-bold text-slate-700">Žádné polohy k zobrazení</p>
-            <p className="text-xs max-w-xs">
-              Výdaje uložené s GPS souřadnicemi se zobrazí zde. Ujisti se, že má aplikace povolení pro přístup k poloze.
-            </p>
-          </div>
-        ) : (
-          <MapContainer
-            center={[13.75, 100.5]}
-            zoom={5}
-            style={{ height: "100%", width: "100%", minHeight: "60vh" }}
-            scrollWheelZoom
-          >
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
+          ) : mapped.length === 0 ? (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-slate-50 text-slate-400 p-6 text-center">
+              <div className="h-14 w-14 rounded-full bg-slate-100 flex items-center justify-center">
+                <MapPin className="h-7 w-7" />
+              </div>
+              <p className="text-sm font-bold text-slate-700">Žádné polohy k zobrazení</p>
+              <p className="text-xs max-w-xs">
+                Výdaje uložené s GPS souřadnicemi se zobrazí zde. Ujisti se, že má
+                aplikace povolení pro přístup k poloze.
+              </p>
+            </div>
+          ) : (
+            <MapContainer
+              center={[13.75, 100.5]}
+              zoom={5}
+              scrollWheelZoom
+              style={{ width: "100%", height: "100%" }}
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
 
-            {mapped.map((exp) => (
-              <Marker
-                key={exp.id}
-                position={[exp.location!.lat, exp.location!.lng]}
-                icon={createDotIcon(getCategoryColor(exp.category))}
-              >
-                <Popup>
-                  <div style={{ minWidth: 140 }}>
-                    <p style={{ fontWeight: 700, fontSize: 13, lineHeight: 1.3, margin: 0 }}>
-                      {exp.note}
-                    </p>
-                    {exp.merchant && (
-                      <p style={{ fontSize: 11, color: "#64748b", margin: "2px 0 0" }}>
-                        {exp.merchant}
+              {mapped.map((exp) => (
+                <Marker
+                  key={exp.id}
+                  position={[exp.location!.lat, exp.location!.lng]}
+                  icon={createDotIcon(getCategoryColor(exp.category))}
+                >
+                  <Popup>
+                    <div style={{ minWidth: 150 }}>
+                      <p style={{ margin: 0, fontWeight: 700, fontSize: 13, lineHeight: 1.4 }}>
+                        {exp.note}
                       </p>
-                    )}
-                    <p style={{ fontSize: 11, color: "#94a3b8", margin: "2px 0 0" }}>
-                      {exp.category}
-                    </p>
-                    <p style={{ fontSize: 16, fontWeight: 900, color: "#e11d48", margin: "6px 0 0" }}>
-                      {formatCZK(exp.amountCZK)}{" "}
-                      <span style={{ fontSize: 11, fontWeight: 600, color: "#fb7185" }}>Kč</span>
-                    </p>
-                    {exp.currency !== "CZK" && (
-                      <p style={{ fontSize: 10, color: "#94a3b8", margin: "2px 0 0" }}>
-                        {formatCZK(exp.amountOriginal)} {exp.currency}
+                      {exp.merchant && (
+                        <p style={{ margin: "2px 0 0", fontSize: 11, color: "#64748b" }}>
+                          {exp.merchant}
+                        </p>
+                      )}
+                      <p style={{ margin: "2px 0 0", fontSize: 11, color: "#94a3b8" }}>
+                        {exp.category}
                       </p>
-                    )}
-                  </div>
-                </Popup>
-              </Marker>
-            ))}
-          </MapContainer>
-        )}
+                      <p style={{ margin: "8px 0 0", fontSize: 17, fontWeight: 900, color: "#e11d48" }}>
+                        {fmt(exp.amountCZK)}{" "}
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "#fb7185" }}>Kč</span>
+                      </p>
+                      {exp.currency !== "CZK" && (
+                        <p style={{ margin: "2px 0 0", fontSize: 10, color: "#94a3b8" }}>
+                          {fmt(exp.amountOriginal)} {exp.currency}
+                        </p>
+                      )}
+                    </div>
+                  </Popup>
+                </Marker>
+              ))}
+            </MapContainer>
+          )}
+        </div>
       </div>
 
-      {/* Legenda kategorií */}
+      {/* Legenda */}
       {mapped.length > 0 && (
-        <div className="max-w-md mx-auto w-full px-4 pb-3 sm:max-w-lg">
+        <div className="max-w-md mx-auto w-full px-4 mt-4 sm:max-w-lg">
           <div className="bg-white rounded-2xl px-4 py-3 shadow-sm border border-slate-100">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
               Legenda
@@ -241,7 +231,6 @@ export default function MapView() {
             <List className="h-5 w-5" />
             <span className="text-[10px] font-semibold">Entries</span>
           </Link>
-
           <Link
             href="/stats"
             className="flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-xl text-slate-400 hover:text-slate-700 transition-colors"
@@ -249,7 +238,6 @@ export default function MapView() {
             <BarChart3 className="h-5 w-5" />
             <span className="text-[10px] font-semibold">Stats</span>
           </Link>
-
           <Link
             href="/map"
             className="flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-xl text-rose-500"
@@ -258,7 +246,6 @@ export default function MapView() {
             <Map className="h-5 w-5" />
             <span className="text-[10px] font-semibold">Map</span>
           </Link>
-
           <Link
             href="/?tab=search"
             className="flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-xl text-slate-400 hover:text-slate-700 transition-colors"

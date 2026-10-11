@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic';
 
+// Leaflet potřebuje browser API (window, document) → ssr: false je povinné
 const MapView = dynamic(() => import('@/app/map/components/MapView'), {
   ssr: false,
   loading: () => (

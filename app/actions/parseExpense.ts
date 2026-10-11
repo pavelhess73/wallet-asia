@@ -96,11 +96,11 @@ Z textu uživatele extrahuj přesné informace:
 - 'note': stručný český popis výdaje.
 - 'merchant': název podniku nebo obchodu, pokud byl zmíněn (např. '7-Eleven', 'Bia Hoi', 'Grab', 'Pho 10').`;
 
-  // Primárně použijeme gemini-2.5-flash s fallbackem na novější/dostupné modely
+  // Primárně použijeme gemini-2.5-flash s fallbackem na dostupné modely
   const candidateModels = [
     "gemini-2.5-flash",
-    "gemini-3.8-flash",
-    "gemini-1.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash-latest",
   ];
 
   let rawJsonText: string | null = null;
