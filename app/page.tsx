@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import {
   collection,
@@ -14,6 +14,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { parseAIExpense } from "@/app/actions/parseExpense";
+import { parseReceiptImage } from "@/app/actions/parseReceipt";
 import { Currency, Expense, CURRENCIES } from "@/lib/types";
 import {
   Sparkles,
@@ -41,6 +42,7 @@ import {
   MapPin,
   Pencil,
   Trash2,
+  Camera,
 } from "lucide-react";
 
 // Orientační kurzy: 1000 VND = 0.95 CZK, 1 THB = 0.68 CZK, 1000 LAK = 1.1 CZK, 1 USD = 23 CZK, 1 CZK = 1 CZK
@@ -204,9 +206,11 @@ export default function AsiaTravelWallet() {
   const [activeTab, setActiveTab] = useState<"entries" | "stats" | "map" | "search">("entries");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // Stavové proměnné pro AI vstup
+  // Stavové proměnné pro AI vstup a skenování účtenek
   const [aiInputText, setAiInputText] = useState<string>("");
   const [aiLoading, setAiLoading] = useState<boolean>(false);
+  const [isReceiptScanning, setIsReceiptScanning] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Stav pro modální okno formuláře (přidání i editace)
   const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
@@ -429,6 +433,45 @@ export default function AsiaTravelWallet() {
     } catch (err) {
       console.error("Chyba při mazání výdaje:", err);
       setErrorMessage("Nepodařilo se smazat výdaj.");
+    }
+  };
+
+  // Nahrání a zpracování fotografie účtenky přes Gemini Vision
+  const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsReceiptScanning(true);
+    setErrorMessage(null);
+
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(file);
+      });
+
+      const parsedReceipt = await parseReceiptImage(
+        base64,
+        file.type || "image/jpeg"
+      );
+      await addDoc(collection(db, "expenses"), parsedReceipt);
+      showSuccess(
+        `Účtenka načtena: ${parsedReceipt.merchant ? `${parsedReceipt.merchant} – ` : ""}${parsedReceipt.note} (${formatNumber(parsedReceipt.amountCZK)} Kč)`
+      );
+    } catch (err) {
+      console.error("Chyba při skenování účtenky:", err);
+      setErrorMessage(
+        err instanceof Error
+          ? err.message
+          : "Nepodařilo se zpracovat účtenku pomocí AI."
+      );
+    } finally {
+      setIsReceiptScanning(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
@@ -863,27 +906,58 @@ export default function AsiaTravelWallet() {
         )}
       </main>
 
+      {/* Skrytý input pro nahrání / vyfocení účtenky */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleReceiptUpload}
+        className="hidden"
+      />
+
       {/* SPODNÍ FIXOVANÁ SEKCE (FLOATING AI BAR + SPODNÍ NAVIGACE, z-index 50) */}
       <div className="fixed bottom-0 left-0 right-0 z-50 pointer-events-none">
-        {/* Plovoucí bílý pilulkový input s ikonou ✨ a tlačítkem + */}
+        {/* Plovoucí bílý pilulkový input s ikonou ✨, fotoaparátem a tlačítkem + */}
         <div className="max-w-md mx-auto px-4 pb-2.5 pointer-events-auto sm:max-w-lg">
           <div className="flex items-center gap-2">
             <form
               onSubmit={handleAISubmit}
-              className="flex-1 flex items-center bg-white shadow-xl shadow-slate-300/40 border border-slate-200/90 rounded-full pl-3.5 pr-1.5 py-1.5 gap-2 transition-all focus-within:ring-2 focus-within:ring-rose-500/20 focus-within:border-rose-400"
+              className="flex-1 flex items-center bg-white shadow-xl shadow-slate-300/40 border border-slate-200/90 rounded-full pl-3.5 pr-1.5 py-1.5 gap-1.5 transition-all focus-within:ring-2 focus-within:ring-rose-500/20 focus-within:border-rose-400"
             >
               <Sparkles className="h-4 w-4 text-rose-500 shrink-0 animate-pulse" />
               <input
                 type="text"
-                disabled={aiLoading}
+                disabled={aiLoading || isReceiptScanning}
                 value={aiInputText}
                 onChange={(e) => setAiInputText(e.target.value)}
-                placeholder="Zadejte výdaj... (např. 150k oběd)"
-                className="w-full bg-transparent text-sm text-slate-800 placeholder-slate-400 focus:outline-none disabled:opacity-50"
+                placeholder={
+                  isReceiptScanning
+                    ? "Skenuji účtenku..."
+                    : "Zadejte výdaj... (např. 150k oběd)"
+                }
+                className="w-full bg-transparent text-sm text-slate-800 placeholder-slate-400 focus:outline-none disabled:opacity-50 min-w-0"
               />
+
+              {/* Tlačítko fotoaparátu pro nahrání/vyfocení účtenky */}
+              <button
+                type="button"
+                disabled={aiLoading || isReceiptScanning}
+                onClick={() => fileInputRef.current?.click()}
+                className="shrink-0 h-9 w-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 flex items-center justify-center transition-colors active:scale-95 disabled:opacity-50 cursor-pointer"
+                title="Vyfotit nebo nahrát účtenku"
+              >
+                {isReceiptScanning ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-rose-500" />
+                ) : (
+                  <Camera className="h-4 w-4" />
+                )}
+              </button>
+
+              {/* Růžové tlačítko pro AI odeslání textu */}
               <button
                 type="submit"
-                disabled={aiLoading || !aiInputText.trim()}
+                disabled={aiLoading || isReceiptScanning || !aiInputText.trim()}
                 className="shrink-0 h-9 px-3.5 rounded-full bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white font-semibold text-xs shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                 title="Odeslat do AI"
               >
