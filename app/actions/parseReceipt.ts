@@ -125,7 +125,6 @@ Důkladně analyzuj přiloženou fotografii účtenky a extrahuj následující 
   const candidateModels = [
     "gemini-2.5-flash",
     "gemini-2.0-flash",
-    "gemini-1.5-flash-latest",
   ];
 
   let rawJsonText: string | null = null;
