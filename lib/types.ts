@@ -4,7 +4,25 @@ export const CURRENCIES = ["VND", "THB", "LAK", "USD", "CZK"] as const;
 export const CurrencySchema = z.enum(CURRENCIES);
 export type Currency = z.infer<typeof CurrencySchema>;
 
+export const PRIMARY_CATEGORIES = [
+  "Transportation",
+  "Restaurants",
+  "Drinks",
+  "Coffee",
+  "Groceries",
+  "Accommodation",
+  "Flights",
+] as const;
+export type PrimaryCategory = (typeof PRIMARY_CATEGORIES)[number];
+
 export const EXPENSE_CATEGORIES = [
+  "Transportation",
+  "Restaurants",
+  "Drinks",
+  "Coffee",
+  "Groceries",
+  "Accommodation",
+  "Flights",
   "🍺 Pivo & Bar",
   "🍜 Gastro & Jídlo",
   "🚕 Doprava",

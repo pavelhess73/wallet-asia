@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   collection,
   addDoc,
@@ -10,24 +10,31 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { parseAIExpense } from "@/app/actions/parseExpense";
+import { Currency, Expense, CURRENCIES } from "@/lib/types";
 import {
-  Currency,
-  Expense,
-  CURRENCIES,
-  EXPENSE_CATEGORIES,
-} from "@/lib/types";
-import {
-  Wallet,
-  Receipt,
-  MapPin,
-  Calendar,
   Sparkles,
   Loader2,
   Plus,
   Coins,
-  Store,
+  Calendar,
+  Train,
+  UtensilsCrossed,
+  Wine,
+  Coffee,
+  ShoppingCart,
+  Hotel,
+  Plane,
   Tag,
+  Store,
+  X,
   AlertCircle,
+  Send,
+  CheckCircle2,
+  ReceiptText,
+  BarChart3,
+  Map,
+  Search,
+  MapPin,
 } from "lucide-react";
 
 // Orientační kurzy: 1000 VND = 0.95 CZK, 1 THB = 0.68 CZK, 1000 LAK = 1.1 CZK, 1 USD = 23 CZK, 1 CZK = 1 CZK
@@ -39,22 +46,171 @@ const EXCHANGE_RATES: Record<Currency, number> = {
   CZK: 1,
 };
 
+// Seznam hlavních kategorií s ikonami a barvami
+export const CATEGORY_DEFINITIONS = [
+  {
+    id: "Transportation",
+    label: "Transportation",
+    icon: Train,
+    emoji: "🚆",
+    circleBg: "bg-orange-100 text-orange-600",
+    badgeBg: "bg-orange-50 text-orange-700 border-orange-200",
+  },
+  {
+    id: "Restaurants",
+    label: "Restaurants",
+    icon: UtensilsCrossed,
+    emoji: "🍽️",
+    circleBg: "bg-rose-100 text-rose-600",
+    badgeBg: "bg-rose-50 text-rose-700 border-rose-200",
+  },
+  {
+    id: "Drinks",
+    label: "Drinks",
+    icon: Wine,
+    emoji: "🍸",
+    circleBg: "bg-purple-100 text-purple-600",
+    badgeBg: "bg-purple-50 text-purple-700 border-purple-200",
+  },
+  {
+    id: "Coffee",
+    label: "Coffee",
+    icon: Coffee,
+    emoji: "☕",
+    circleBg: "bg-amber-100 text-amber-800",
+    badgeBg: "bg-amber-50 text-amber-800 border-amber-200",
+  },
+  {
+    id: "Groceries",
+    label: "Groceries",
+    icon: ShoppingCart,
+    emoji: "🛒",
+    circleBg: "bg-emerald-100 text-emerald-600",
+    badgeBg: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  },
+  {
+    id: "Accommodation",
+    label: "Accommodation",
+    icon: Hotel,
+    emoji: "🏨",
+    circleBg: "bg-blue-100 text-blue-600",
+    badgeBg: "bg-blue-50 text-blue-700 border-blue-200",
+  },
+  {
+    id: "Flights",
+    label: "Flights",
+    icon: Plane,
+    emoji: "✈️",
+    circleBg: "bg-sky-100 text-sky-600",
+    badgeBg: "bg-sky-50 text-sky-700 border-sky-200",
+  },
+] as const;
+
+// Inteligentní mapování libovolné kategorie (včetně starých českých s emoji)
+function getCategoryMeta(catName: string) {
+  const norm = (catName || "").toLowerCase();
+
+  if (
+    norm.includes("transport") ||
+    norm.includes("doprav") ||
+    norm.includes("vlak") ||
+    norm.includes("taxi") ||
+    norm.includes("grab") ||
+    norm.includes("autobus")
+  ) {
+    return CATEGORY_DEFINITIONS[0]; // Transportation
+  }
+  if (
+    norm.includes("restaurant") ||
+    norm.includes("gastro") ||
+    norm.includes("jídlo") ||
+    norm.includes("jidlo") ||
+    norm.includes("oběd") ||
+    norm.includes("večeře")
+  ) {
+    return CATEGORY_DEFINITIONS[1]; // Restaurants
+  }
+  if (
+    norm.includes("drink") ||
+    norm.includes("pivo") ||
+    norm.includes("bar") ||
+    norm.includes("alkohol") ||
+    norm.includes("koktejl")
+  ) {
+    return CATEGORY_DEFINITIONS[2]; // Drinks
+  }
+  if (
+    norm.includes("coffee") ||
+    norm.includes("káv") ||
+    norm.includes("kav") ||
+    norm.includes("cafe") ||
+    norm.includes("espresso")
+  ) {
+    return CATEGORY_DEFINITIONS[3]; // Coffee
+  }
+  if (
+    norm.includes("grocer") ||
+    norm.includes("nákup") ||
+    norm.includes("nakup") ||
+    norm.includes("market") ||
+    norm.includes("7-eleven") ||
+    norm.includes("obchod")
+  ) {
+    return CATEGORY_DEFINITIONS[4]; // Groceries
+  }
+  if (
+    norm.includes("accommodat") ||
+    norm.includes("ubytov") ||
+    norm.includes("hotel") ||
+    norm.includes("hostel") ||
+    norm.includes("airbnb")
+  ) {
+    return CATEGORY_DEFINITIONS[5]; // Accommodation
+  }
+  if (
+    norm.includes("flight") ||
+    norm.includes("letenk") ||
+    norm.includes("let") ||
+    norm.includes("aerolink")
+  ) {
+    return CATEGORY_DEFINITIONS[6]; // Flights
+  }
+
+  // Výchozí zástupná kategorie pro ostatní
+  return {
+    id: catName || "Other",
+    label: catName || "Ostatní",
+    icon: Tag,
+    emoji: "🏷️",
+    circleBg: "bg-slate-100 text-slate-600",
+    badgeBg: "bg-slate-50 text-slate-700 border-slate-200",
+  };
+}
+
 export default function AsiaTravelWallet() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  // Aktivní záložka spodní navigace: Entries | Stats | Map | Search
+  const [activeTab, setActiveTab] = useState<"entries" | "stats" | "map" | "search">("entries");
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
   // Stavové proměnné pro AI vstup
   const [aiInputText, setAiInputText] = useState<string>("");
   const [aiLoading, setAiLoading] = useState<boolean>(false);
+
+  // Stav pro modální okno ručního formuláře
+  const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
 
   // Stavové proměnné pro ruční formulář
   const [amountOriginal, setAmountOriginal] = useState<string>("");
   const [currency, setCurrency] = useState<Currency>("VND");
   const [note, setNote] = useState<string>("");
   const [merchant, setMerchant] = useState<string>("");
-  const [category, setCategory] = useState<string>(EXPENSE_CATEGORIES[0]);
+  const [manualCategory, setManualCategory] = useState<string>("Restaurants");
 
   // Real-time listener pro kolekci expenses seřazenou podle createdAt sestupně
   useEffect(() => {
@@ -71,7 +227,7 @@ export default function AsiaTravelWallet() {
             amountOriginal: Number(data.amountOriginal) || 0,
             currency: (data.currency as Currency) || "CZK",
             amountCZK: Number(data.amountCZK) || 0,
-            category: data.category || "🛒 Ostatní",
+            category: data.category || "Ostatní",
             note: data.note || "",
             merchant: data.merchant || undefined,
             createdAt: data.createdAt || new Date().toISOString(),
@@ -91,14 +247,145 @@ export default function AsiaTravelWallet() {
     return () => unsubscribe();
   }, []);
 
-  // Živý orientační přepočet na CZK pro náhled ručního formuláře
+  // Pomocné formátování čísel a měn
+  const formatNumber = (val: number, maxDecimals = 0) => {
+    return new Intl.NumberFormat("cs-CZ", {
+      maximumFractionDigits: maxDecimals,
+    }).format(val);
+  };
+
+  // Výpočet Total (celkový součet v CZK)
+  const totalCZK = useMemo(() => {
+    return expenses.reduce((acc, curr) => acc + (curr.amountCZK || 0), 0);
+  }, [expenses]);
+
+  // Pomocná funkce pro kontrolu dneška
+  const isTodayDate = (isoString: string) => {
+    try {
+      const d = new Date(isoString);
+      const now = new Date();
+      return (
+        d.getDate() === now.getDate() &&
+        d.getMonth() === now.getMonth() &&
+        d.getFullYear() === now.getFullYear()
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  // Výpočet Today (dnešní utracená částka v CZK)
+  const { todayCZK, todayCount } = useMemo(() => {
+    const todayExpenses = expenses.filter((e) => isTodayDate(e.createdAt));
+    const sum = todayExpenses.reduce((acc, curr) => acc + (curr.amountCZK || 0), 0);
+    return { todayCZK: sum, todayCount: todayExpenses.length };
+  }, [expenses]);
+
+  // Čistý feed výdajů seskupených přímo podle dnů (createdAt)
+  const groupedExpenses = useMemo(() => {
+    const groups: {
+      [dateKey: string]: {
+        label: string;
+        totalCZK: number;
+        items: Expense[];
+      };
+    } = {};
+
+    expenses.forEach((exp) => {
+      let dateKey = "Neznámé datum";
+      let label = "Neznámé datum";
+
+      try {
+        const d = new Date(exp.createdAt);
+        if (!isNaN(d.getTime())) {
+          dateKey = d.toISOString().split("T")[0];
+
+          const now = new Date();
+          const isCurrentDay =
+            d.getDate() === now.getDate() &&
+            d.getMonth() === now.getMonth() &&
+            d.getFullYear() === now.getFullYear();
+
+          const yesterday = new Date();
+          yesterday.setDate(now.getDate() - 1);
+          const isYesterday =
+            d.getDate() === yesterday.getDate() &&
+            d.getMonth() === yesterday.getMonth() &&
+            d.getFullYear() === yesterday.getFullYear();
+
+          const formattedDay = new Intl.DateTimeFormat("cs-CZ", {
+            day: "numeric",
+            month: "long",
+          }).format(d);
+
+          if (isCurrentDay) {
+            label = `Dnes • ${formattedDay}`;
+          } else if (isYesterday) {
+            label = `Včera • ${formattedDay}`;
+          } else {
+            label = formattedDay;
+          }
+        }
+      } catch {
+        dateKey = "Neznámé datum";
+        label = "Neznámé datum";
+      }
+
+      if (!groups[dateKey]) {
+        groups[dateKey] = {
+          label,
+          totalCZK: 0,
+          items: [],
+        };
+      }
+
+      groups[dateKey].items.push(exp);
+      groups[dateKey].totalCZK += exp.amountCZK || 0;
+    });
+
+    return Object.entries(groups).map(([dateKey, group]) => ({
+      dateKey,
+      ...group,
+    }));
+  }, [expenses]);
+
+  // Statistiky podle kategorií pro záložku Stats
+  const categoryStats = useMemo(() => {
+    const map: { [cat: string]: { totalCZK: number; count: number } } = {};
+    expenses.forEach((e) => {
+      const meta = getCategoryMeta(e.category);
+      if (!map[meta.label]) {
+        map[meta.label] = { totalCZK: 0, count: 0 };
+      }
+      map[meta.label].totalCZK += e.amountCZK || 0;
+      map[meta.label].count += 1;
+    });
+    return Object.entries(map).sort((a, b) => b[1].totalCZK - a[1].totalCZK);
+  }, [expenses]);
+
+  // Filtrované výdaje pro záložku Search
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return expenses;
+    const q = searchQuery.toLowerCase();
+    return expenses.filter(
+      (e) =>
+        e.note.toLowerCase().includes(q) ||
+        (e.merchant && e.merchant.toLowerCase().includes(q)) ||
+        e.category.toLowerCase().includes(q)
+    );
+  }, [expenses, searchQuery]);
+
+  // Živý přepočet pro náhled v ručním formuláři
   const previewAmountCZK =
     amountOriginal && !isNaN(Number(amountOriginal))
       ? Math.round(Number(amountOriginal) * (EXCHANGE_RATES[currency] ?? 1) * 100) / 100
       : 0;
 
-  // Celkový součet v CZK
-  const totalCZK = expenses.reduce((acc, curr) => acc + (curr.amountCZK || 0), 0);
+  // Zobrazení toastu o úspěchu
+  const showSuccess = (msg: string) => {
+    setSuccessToast(msg);
+    setTimeout(() => setSuccessToast(null), 3500);
+  };
 
   // Odeslání AI vstupu
   const handleAISubmit = async (e: React.FormEvent) => {
@@ -112,6 +399,7 @@ export default function AsiaTravelWallet() {
       const parsedExpense = await parseAIExpense(aiInputText);
       await addDoc(collection(db, "expenses"), parsedExpense);
       setAiInputText("");
+      showSuccess(`Uloženo: ${parsedExpense.note} (${formatNumber(parsedExpense.amountCZK)} Kč)`);
     } catch (error) {
       console.error("Chyba při zpracování AI výdaje:", error);
       setErrorMessage(
@@ -150,7 +438,7 @@ export default function AsiaTravelWallet() {
         amountOriginal: numericAmount,
         currency,
         amountCZK: calculatedCZK,
-        category,
+        category: manualCategory,
         note: note.trim(),
         createdAt: new Date().toISOString(),
       };
@@ -161,10 +449,12 @@ export default function AsiaTravelWallet() {
 
       await addDoc(collection(db, "expenses"), expensePayload);
 
-      // Vyčištění formuláře
+      // Vyčištění a zavření
       setAmountOriginal("");
       setNote("");
       setMerchant("");
+      setIsManualModalOpen(false);
+      showSuccess(`Přidán výdaj: ${note.trim()} (${formatNumber(calculatedCZK)} Kč)`);
     } catch (error) {
       console.error("Chyba při ukládání výdaje:", error);
       setErrorMessage("Chyba při ukládání do Firestore. Zkontrolujte připojení.");
@@ -173,353 +463,550 @@ export default function AsiaTravelWallet() {
     }
   };
 
-  const formatNumber = (val: number, maxDecimals = 2) => {
-    return new Intl.NumberFormat("cs-CZ", {
-      maximumFractionDigits: maxDecimals,
-    }).format(val);
-  };
-
-  const formatDate = (isoString: string) => {
-    try {
-      const d = new Date(isoString);
-      return new Intl.DateTimeFormat("cs-CZ", {
-        day: "numeric",
-        month: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      }).format(d);
-    } catch {
-      return isoString;
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-zinc-950 text-slate-100 antialiased selection:bg-emerald-500/30">
-      {/* Horní dekorativní záře */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[600px] h-[350px] bg-emerald-500/10 blur-[120px] rounded-full" />
-        <div className="absolute top-96 -right-20 w-[400px] h-[300px] bg-cyan-500/10 blur-[130px] rounded-full" />
-      </div>
+    <div className="min-h-screen bg-[#F8F6F4] text-slate-800 antialiased selection:bg-rose-500/20 pb-44">
+      {/* Toast notifikace úspěchu */}
+      {successToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full bg-slate-900 text-white px-4 py-2.5 shadow-xl text-xs sm:text-sm font-medium animate-in fade-in slide-in-from-top-2">
+          <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+          <span>{successToast}</span>
+        </div>
+      )}
 
-      <div className="relative mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-12 flex flex-col gap-8">
-        {/* HLAVIČKA S CELKOVÝM SOUČTEM */}
-        <header className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 sm:p-8 backdrop-blur-xl shadow-2xl relative overflow-hidden">
-          <div className="flex items-center justify-between gap-4 mb-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 text-slate-950 shadow-lg shadow-emerald-500/20">
-                <Wallet className="h-6 w-6 stroke-[2.2]" />
-              </div>
-              <div>
-                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
-                  Asia Travel Wallet
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-medium border border-emerald-500/30">
-                    Online
-                  </span>
-                </h1>
-                <p className="text-xs sm:text-sm text-slate-400">
-                  Přehled cestovních výdajů v reálném čase
-                </p>
-              </div>
-            </div>
+      <main className="max-w-md mx-auto px-4 pt-6 flex flex-col gap-5 sm:max-w-lg">
+        {/* HLAVIČKA */}
+        <header className="flex flex-col gap-1 pt-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold tracking-wider uppercase text-rose-500 flex items-center gap-1.5">
+              <span>🌏</span>
+              <span>Cestovní Peněženka</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-semibold border border-emerald-200/60">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Live
+            </span>
           </div>
 
-          {/* Karta celkové útraty */}
-          <div className="mt-4 pt-5 border-t border-white/5 flex flex-col sm:flex-row sm:items-end justify-between gap-2">
-            <div>
-              <span className="text-xs uppercase tracking-wider font-semibold text-slate-400 flex items-center gap-1.5">
-                <Coins className="h-3.5 w-3.5 text-emerald-400" />
-                Celkem utraceno (orientačně v CZK)
-              </span>
-              <div className="mt-1 text-3xl sm:text-4xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300">
-                {formatNumber(totalCZK)} <span className="text-xl sm:text-2xl text-emerald-400">Kč</span>
-              </div>
-            </div>
-            <div className="text-xs text-slate-400 font-medium">
-              Celkem záznamů: <span className="text-white font-semibold">{expenses.length}</span>
-            </div>
-          </div>
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">
+            Thajsko, Laos, Vietnam
+          </h1>
+          <p className="text-xs text-slate-500">
+            Aktuální přehled cestovních financí v CZK
+          </p>
         </header>
 
-        {/* Chybová hláška */}
+        {/* CHYBOVÁ HLÁŠKA */}
         {errorMessage && (
-          <div className="flex items-center gap-3 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-rose-300 backdrop-blur-md">
-            <AlertCircle className="h-5 w-5 shrink-0 text-rose-400" />
-            <span className="text-sm">{errorMessage}</span>
+          <div className="flex items-start gap-2.5 rounded-2xl bg-rose-50 border border-rose-200 p-3.5 text-rose-800 text-xs sm:text-sm">
+            <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
+            <div className="flex-1">{errorMessage}</div>
+            <button
+              onClick={() => setErrorMessage(null)}
+              className="text-rose-500 hover:text-rose-700 text-xs font-bold"
+            >
+              ✕
+            </button>
           </div>
         )}
 
-        {/* AI RYCHLÝ ZÁZNAM */}
-        <section className="relative overflow-hidden rounded-3xl border border-emerald-500/30 bg-gradient-to-br from-emerald-950/40 via-slate-900/60 to-teal-950/40 p-6 sm:p-7 backdrop-blur-xl shadow-2xl shadow-emerald-950/30">
-          <div className="pointer-events-none absolute -top-12 -right-12 h-32 w-32 rounded-full bg-emerald-500/15 blur-2xl" />
-
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-inner">
-                <Sparkles className="h-5 w-5 animate-pulse" />
+        {/* POUZE ČISTÉ KARTY TOTAL A TODAY NAHOŘE */}
+        <div className="grid grid-cols-2 gap-3">
+          {/* Total Karta (Celkem Kč) */}
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Total (Celkem)
+              </span>
+              <div className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-600">
+                <Coins className="h-3.5 w-3.5" />
               </div>
-              <div>
-                <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-                  AI rychlý záznam
-                  <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950">
-                    Gemini
-                  </span>
-                </h2>
-                <p className="text-xs text-slate-400">
-                  Napište výdaj volnou řečí a AI rozpozná částku, měnu i kategorii.
-                </p>
+            </div>
+            <div>
+              <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                {formatNumber(totalCZK)}{" "}
+                <span className="text-xs font-semibold text-slate-400">Kč</span>
               </div>
+              <p className="text-[11px] text-slate-400 mt-0.5 font-medium">
+                Celkem {expenses.length} výdajů
+              </p>
             </div>
           </div>
 
-          <form onSubmit={handleAISubmit} className="flex flex-col gap-3">
+          {/* Today Karta (Dnes Kč) */}
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-rose-500">
+                Today (Dnes)
+              </span>
+              <div className="h-7 w-7 rounded-full bg-rose-50 flex items-center justify-center text-rose-500">
+                <Calendar className="h-3.5 w-3.5" />
+              </div>
+            </div>
+            <div>
+              <div className="text-xl sm:text-2xl font-black text-rose-600 tracking-tight">
+                {formatNumber(todayCZK)}{" "}
+                <span className="text-xs font-semibold text-rose-400">Kč</span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5 font-medium">
+                {todayCount} dnes
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* OBSAH PODLE VYBRANÉ ZÁLOŽKY */}
+        {activeTab === "entries" && (
+          /* ČISTÝ FEED VÝDAJŮ SESKUPENÝCH PODLE DNŮ */
+          <div className="flex flex-col gap-4">
+            {isLoading ? (
+              <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 flex flex-col items-center justify-center text-slate-400">
+                <Loader2 className="h-6 w-6 animate-spin text-rose-500 mb-2" />
+                <p className="text-xs font-medium">Načítám výdaje...</p>
+              </div>
+            ) : groupedExpenses.length === 0 ? (
+              <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center text-slate-400">
+                <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
+                  <Tag className="h-6 w-6" />
+                </div>
+                <p className="text-sm font-bold text-slate-700">Zatím žádné výdaje</p>
+                <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                  Použij spodní AI lištu pro rychlý záznam nebo klikni na + pro ruční zadání.
+                </p>
+              </div>
+            ) : (
+              groupedExpenses.map((group) => (
+                <section key={group.dateKey} className="flex flex-col gap-1.5">
+                  {/* Hlavička dne: Datum vlevo ('Dnes • 11. října'), celková částka za den vpravo */}
+                  <div className="flex items-center justify-between px-1">
+                    <span className="text-xs font-bold text-slate-500 tracking-wide">
+                      {group.label}
+                    </span>
+                    <span className="text-xs font-black text-slate-800 tracking-tight">
+                      {formatNumber(group.totalCZK)} Kč
+                    </span>
+                  </div>
+
+                  {/* Karta se záznamy daného dne */}
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-100 divide-y divide-slate-100 overflow-hidden">
+                    {group.items.map((expense) => {
+                      const meta = getCategoryMeta(expense.category);
+                      const IconComp = meta.icon;
+
+                      return (
+                        <div
+                          key={expense.id ?? `${expense.createdAt}-${expense.note}`}
+                          className="p-3.5 flex items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors"
+                        >
+                          {/* Levá část: Kulatá ikona kategorie + popisy */}
+                          <div className="flex items-center gap-3 min-w-0">
+                            {/* Kulatá ikona kategorie */}
+                            <div
+                              className={`h-10 w-10 rounded-full flex items-center justify-center shrink-0 ${meta.circleBg}`}
+                            >
+                              <IconComp className="h-5 w-5 stroke-[2.2]" />
+                            </div>
+
+                            {/* Popis a detail */}
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-slate-900 truncate">
+                                {expense.note}
+                              </p>
+                              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 truncate mt-0.5">
+                                <span className="font-medium text-slate-500">
+                                  {meta.label}
+                                </span>
+                                {expense.merchant && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="truncate">{expense.merchant}</span>
+                                  </>
+                                )}
+                                {expense.currency !== "CZK" && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="font-mono text-slate-400">
+                                      {formatNumber(expense.amountOriginal, 0)} {expense.currency}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Pravá část: Částka v CZK */}
+                          <div className="text-right shrink-0">
+                            <div className="text-sm font-black text-slate-900 tracking-tight">
+                              {formatNumber(expense.amountCZK)} Kč
+                            </div>
+                            {expense.currency !== "CZK" && (
+                              <div className="text-[10px] text-slate-400 font-medium">
+                                {formatNumber(expense.amountOriginal, 0)} {expense.currency}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* ZÁLOŽKA STATS */}
+        {activeTab === "stats" && (
+          <div className="flex flex-col gap-3">
+            <h2 className="text-sm font-bold text-slate-700 px-1">Přehled podle kategorií</h2>
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col gap-3">
+              {categoryStats.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-4">Žádná data pro statistiku</p>
+              ) : (
+                categoryStats.map(([categoryName, data]) => {
+                  const meta = getCategoryMeta(categoryName);
+                  const IconComp = meta.icon;
+                  const percent = totalCZK > 0 ? Math.round((data.totalCZK / totalCZK) * 100) : 0;
+                  return (
+                    <div key={categoryName} className="flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <div className={`h-6 w-6 rounded-full flex items-center justify-center ${meta.circleBg}`}>
+                            <IconComp className="h-3.5 w-3.5" />
+                          </div>
+                          <span className="font-semibold text-slate-800">{categoryName}</span>
+                          <span className="text-slate-400 text-[11px]">({data.count}×)</span>
+                        </div>
+                        <div className="font-bold text-slate-900">
+                          {formatNumber(data.totalCZK)} Kč <span className="text-slate-400 font-normal">({percent}%)</span>
+                        </div>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className="h-full bg-rose-500 rounded-full transition-all duration-500"
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ZÁLOŽKA MAP */}
+        {activeTab === "map" && (
+          <div className="flex flex-col gap-3">
+            <h2 className="text-sm font-bold text-slate-700 px-1">Cestovní trasa & Lokace</h2>
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col gap-4">
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-150/70">
+                <MapPin className="h-5 w-5 text-rose-500 shrink-0" />
+                <div>
+                  <div className="text-xs font-bold text-slate-900">Trasa Jihovýchodní Asie</div>
+                  <div className="text-[11px] text-slate-500">🇹🇭 Thajsko ➔ 🇱🇦 Laos ➔ 🇻🇳 Vietnam</div>
+                </div>
+              </div>
+              <div className="flex flex-col divide-y divide-slate-100">
+                {expenses.filter(e => e.merchant).slice(0, 8).map((e) => (
+                  <div key={e.id} className="py-2.5 flex items-center justify-between text-xs">
+                    <span className="font-medium text-slate-700 truncate">{e.merchant}</span>
+                    <span className="font-bold text-slate-900 shrink-0">{formatNumber(e.amountCZK)} Kč</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ZÁLOŽKA SEARCH */}
+        {activeTab === "search" && (
+          <div className="flex flex-col gap-3">
             <div className="relative">
+              <Search className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Hledat výdaj, podnik, kategorii..."
+                className="w-full bg-white rounded-2xl border border-slate-200 pl-10 pr-4 py-2.5 text-xs text-slate-900 shadow-xs focus:outline-none focus:border-rose-500"
+              />
+            </div>
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 divide-y divide-slate-100 overflow-hidden">
+              {searchResults.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-6">Nenalezen žádný odpovídající výdaj</p>
+              ) : (
+                searchResults.map((exp) => (
+                  <div key={exp.id} className="p-3 flex items-center justify-between text-xs">
+                    <div>
+                      <div className="font-bold text-slate-900">{exp.note}</div>
+                      <div className="text-[11px] text-slate-400">{exp.category} {exp.merchant ? `• ${exp.merchant}` : ""}</div>
+                    </div>
+                    <div className="font-bold text-slate-900">{formatNumber(exp.amountCZK)} Kč</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* SPODNÍ FIXOVANÁ SEKCE (FLOATING AI BAR + SPODNÍ NAVIGACE, z-index 50) */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 pointer-events-none">
+        {/* Plovoucí bílý pilulkový input s ikonou ✨ a tlačítkem + */}
+        <div className="max-w-md mx-auto px-4 pb-2.5 pointer-events-auto sm:max-w-lg">
+          <div className="flex items-center gap-2">
+            <form
+              onSubmit={handleAISubmit}
+              className="flex-1 flex items-center bg-white shadow-xl shadow-slate-300/40 border border-slate-200/90 rounded-full pl-3.5 pr-1.5 py-1.5 gap-2 transition-all focus-within:ring-2 focus-within:ring-rose-500/20 focus-within:border-rose-400"
+            >
+              <Sparkles className="h-4 w-4 text-rose-500 shrink-0 animate-pulse" />
               <input
                 type="text"
                 disabled={aiLoading}
                 value={aiInputText}
                 onChange={(e) => setAiInputText(e.target.value)}
-                placeholder="Napište výdaj volnou řečí... (např. 150k pivo v baru Bia Hoi nebo 80 THB pad thai)"
-                className="w-full rounded-2xl border border-emerald-500/30 bg-slate-950/60 px-4 py-3.5 pr-12 text-sm sm:text-base text-white placeholder-slate-500 outline-none transition focus:border-emerald-400 focus:bg-slate-950/80 focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-50"
+                placeholder="Zadejte výdaj... (např. 150k oběd)"
+                className="w-full bg-transparent text-sm text-slate-800 placeholder-slate-400 focus:outline-none disabled:opacity-50"
               />
-              <Sparkles className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-400/60" />
-            </div>
+              <button
+                type="submit"
+                disabled={aiLoading || !aiInputText.trim()}
+                className="shrink-0 h-9 px-3.5 rounded-full bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white font-semibold text-xs shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Odeslat do AI"
+              >
+                {aiLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <Send className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">AI</span>
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* Kulaté tlačítko + pro otevření ručního formuláře */}
+            <button
+              type="button"
+              onClick={() => setIsManualModalOpen(true)}
+              className="h-12 w-12 rounded-full bg-slate-900 hover:bg-slate-800 text-white shadow-xl shadow-slate-900/25 flex items-center justify-center shrink-0 transition-transform active:scale-95 cursor-pointer"
+              title="Přidat ručně / Vybrat kategorii"
+            >
+              <Plus className="h-6 w-6 stroke-[2.3]" />
+            </button>
+          </div>
+        </div>
+
+        {/* Spodní elegantní navigace: Entries, Stats, Map, Search */}
+        <nav className="bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-lg pointer-events-auto">
+          <div className="max-w-md mx-auto sm:max-w-lg px-6 py-2 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setActiveTab("entries")}
+              className={`flex flex-col items-center gap-0.5 transition-colors ${
+                activeTab === "entries" ? "text-rose-600 font-bold" : "text-slate-400 hover:text-slate-600"
+              }`}
+            >
+              <ReceiptText className="h-5 w-5" />
+              <span className="text-[10px]">Entries</span>
+            </button>
 
             <button
-              type="submit"
-              disabled={aiLoading || !aiInputText.trim()}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 px-5 py-3 text-sm sm:text-base font-bold text-slate-950 shadow-lg shadow-emerald-500/20 transition-all hover:opacity-95 hover:shadow-emerald-500/30 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+              onClick={() => setActiveTab("stats")}
+              className={`flex flex-col items-center gap-0.5 transition-colors ${
+                activeTab === "stats" ? "text-rose-600 font-bold" : "text-slate-400 hover:text-slate-600"
+              }`}
             >
-              {aiLoading ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span>Gemini AI zpracovává výdaj...</span>
-                </>
-              ) : (
-                <>
-                  <span>⚡ Zapsat přes AI</span>
-                </>
-              )}
+              <BarChart3 className="h-5 w-5" />
+              <span className="text-[10px]">Stats</span>
             </button>
-          </form>
-        </section>
 
-        {/* RUČNÍ FORMULÁŘ PRO ZADÁNÍ VÝDAJE */}
-        <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 sm:p-7 backdrop-blur-xl shadow-xl">
-          <div className="flex items-center gap-2 mb-6">
-            <Plus className="h-5 w-5 text-emerald-400" />
-            <h2 className="text-lg font-semibold text-white">Ruční zadání výdaje</h2>
+            <button
+              type="button"
+              onClick={() => setActiveTab("map")}
+              className={`flex flex-col items-center gap-0.5 transition-colors ${
+                activeTab === "map" ? "text-rose-600 font-bold" : "text-slate-400 hover:text-slate-600"
+              }`}
+            >
+              <Map className="h-5 w-5" />
+              <span className="text-[10px]">Map</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("search")}
+              className={`flex flex-col items-center gap-0.5 transition-colors ${
+                activeTab === "search" ? "text-rose-600 font-bold" : "text-slate-400 hover:text-slate-600"
+              }`}
+            >
+              <Search className="h-5 w-5" />
+              <span className="text-[10px]">Search</span>
+            </button>
           </div>
+        </nav>
+      </div>
 
-          <form onSubmit={handleManualSubmit} className="flex flex-col gap-5">
-            {/* Částka & Měna */}
-            <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-              <div className="sm:col-span-3">
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                  Částka <span className="text-emerald-400">*</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    required
-                    placeholder="Např. 120000"
-                    value={amountOriginal}
-                    onChange={(e) => setAmountOriginal(e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-base text-white placeholder-slate-500 outline-none transition focus:border-emerald-500/50 focus:bg-white/[0.08] focus:ring-2 focus:ring-emerald-500/20"
-                  />
-                  {previewAmountCZK > 0 && (
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-2 py-1 rounded-lg">
-                      ≈ {formatNumber(previewAmountCZK)} Kč
-                    </div>
-                  )}
-                </div>
+      {/* MODÁLNÍ LIST / BOTTOM SHEET PRO RUČNÍ FORMULÁŘ & KATEGORIE */}
+      {isManualModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/40 backdrop-blur-xs p-0 sm:p-4">
+          <div
+            className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 p-5 sm:p-6 flex flex-col gap-4 animate-in slide-in-from-bottom-5 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Hlavička modálu */}
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-slate-900">
+                  Nový výdaj
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Zadejte částku a zvolte kategorii
+                </p>
               </div>
-
-              {/* Měna */}
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                  Měna <span className="text-emerald-400">*</span>
-                </label>
-                <div className="grid grid-cols-3 sm:grid-cols-3 gap-1 p-1 rounded-2xl border border-white/10 bg-white/[0.03]">
-                  {CURRENCIES.map((curr) => (
-                    <button
-                      type="button"
-                      key={curr}
-                      onClick={() => setCurrency(curr)}
-                      className={`py-2 px-2 text-xs font-semibold rounded-xl transition-all ${
-                        currency === curr
-                          ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/30 scale-[1.02]"
-                          : "text-slate-300 hover:text-white hover:bg-white/[0.05]"
-                      }`}
-                    >
-                      {curr}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <button
+                onClick={() => setIsManualModalOpen(false)}
+                className="h-8 w-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
 
-            {/* Popis výdaje */}
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                Popis <span className="text-emerald-400">*</span>
-              </label>
-              <div className="relative">
+            <form onSubmit={handleManualSubmit} className="flex flex-col gap-4">
+              {/* Výběr kategorie s lucide ikonami */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                  Kategorie
+                </label>
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {CATEGORY_DEFINITIONS.map((cat) => {
+                    const IconComp = cat.icon;
+                    const isSelected = manualCategory === cat.id;
+
+                    return (
+                      <button
+                        type="button"
+                        key={cat.id}
+                        onClick={() => setManualCategory(cat.id)}
+                        className={`p-2 rounded-xl text-left border flex flex-col items-center gap-1 transition-all ${
+                          isSelected
+                            ? "bg-rose-50 border-rose-400 text-rose-700 shadow-xs ring-1 ring-rose-400"
+                            : "bg-slate-50 border-slate-200/70 text-slate-600 hover:bg-slate-100/70"
+                        }`}
+                      >
+                        <div
+                          className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                            isSelected ? "bg-rose-500 text-white" : "bg-white text-slate-600 shadow-xs"
+                          }`}
+                        >
+                          <IconComp className="h-4 w-4" />
+                        </div>
+                        <span className="text-[11px] font-semibold text-center truncate w-full">
+                          {cat.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Částka & Měna */}
+              <div className="grid grid-cols-5 gap-2">
+                <div className="col-span-3">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    Částka *
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      required
+                      placeholder="Např. 80"
+                      value={amountOriginal}
+                      onChange={(e) => setAmountOriginal(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-base font-bold text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-500 focus:bg-white"
+                    />
+                    {previewAmountCZK > 0 && (
+                      <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+                        ≈ {formatNumber(previewAmountCZK)} Kč
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    Měna *
+                  </label>
+                  <select
+                    value={currency}
+                    onChange={(e) => setCurrency(e.target.value as Currency)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:border-rose-500 focus:bg-white"
+                  >
+                    {CURRENCIES.map((curr) => (
+                      <option key={curr} value={curr}>
+                        {curr}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Popis */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Popis výdaje *
+                </label>
                 <input
                   type="text"
                   required
-                  placeholder="Např. Bún chả na ulici, lístek na vlak..."
+                  placeholder="Např. Pad Thai na trhu, vlak do Chiang Mai..."
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
-                  className="w-full rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white placeholder-slate-500 outline-none transition focus:border-emerald-500/50 focus:bg-white/[0.08] focus:ring-2 focus:ring-emerald-500/20"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-500 focus:bg-white"
                 />
               </div>
-            </div>
 
-            {/* Podnik / Místo */}
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                Podnik / Místo <span className="text-slate-500">(volitelné)</span>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                  <Store className="h-4 w-4" />
+              {/* Podnik / Místo */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Místo / Podnik <span className="text-slate-400 lowercase">(volitelné)</span>
+                </label>
+                <div className="relative">
+                  <Store className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Např. 7-Eleven, Night Market..."
+                    value={merchant}
+                    onChange={(e) => setMerchant(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50/50 pl-9 pr-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-500 focus:bg-white"
+                  />
                 </div>
-                <input
-                  type="text"
-                  placeholder="Např. 7-Eleven, Hanoi Old Quarter Coffee..."
-                  value={merchant}
-                  onChange={(e) => setMerchant(e.target.value)}
-                  className="w-full rounded-2xl border border-white/10 bg-white/[0.05] pl-10 pr-4 py-3 text-sm text-white placeholder-slate-500 outline-none transition focus:border-emerald-500/50 focus:bg-white/[0.08] focus:ring-2 focus:ring-emerald-500/20"
-                />
               </div>
-            </div>
 
-            {/* Kategorie */}
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-2">
-                Kategorie <span className="text-emerald-400">*</span>
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {EXPENSE_CATEGORIES.map((cat) => (
-                  <button
-                    type="button"
-                    key={cat}
-                    onClick={() => setCategory(cat)}
-                    className={`py-2.5 px-3 rounded-2xl text-xs sm:text-sm font-medium border text-left transition-all flex items-center justify-between ${
-                      category === cat
-                        ? "bg-emerald-500/20 border-emerald-500/60 text-emerald-300 shadow-sm shadow-emerald-500/20 ring-1 ring-emerald-500/40"
-                        : "bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/[0.06] hover:text-white"
-                    }`}
-                  >
-                    <span>{cat}</span>
-                    {category === cat && (
-                      <span className="h-2 w-2 rounded-full bg-emerald-400 shrink-0 ml-1" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Tlačítko Odeslat */}
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="mt-2 flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-400 px-6 py-3.5 text-base font-bold text-slate-950 shadow-lg shadow-emerald-500/25 transition-all hover:opacity-95 hover:shadow-emerald-500/40 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span>Ukládám do Firestore...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-5 w-5" />
-                  <span>Přidat výdaj ručně</span>
-                </>
-              )}
-            </button>
-          </form>
-        </section>
-
-        {/* SEZNAM VÝDAJŮ */}
-        <section className="flex flex-col gap-4">
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-2">
-              <Receipt className="h-5 w-5 text-emerald-400" />
-              <h2 className="text-lg font-semibold text-white">Poslední výdaje</h2>
-            </div>
-            <span className="text-xs text-slate-400">
-              Seřazeno od nejnovějších
-            </span>
+              {/* Odeslat tlačítko */}
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="mt-2 w-full py-3 rounded-2xl bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 active:scale-[0.99] text-white font-bold text-sm shadow-md shadow-rose-500/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Ukládám...</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-4 w-4 stroke-[2.5]" />
+                    <span>Uložit výdaj</span>
+                  </>
+                )}
+              </button>
+            </form>
           </div>
-
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center rounded-3xl border border-white/5 bg-white/[0.02] py-16 text-slate-400">
-              <Loader2 className="h-8 w-8 animate-spin text-emerald-400 mb-3" />
-              <p className="text-sm">Načítám výdaje z Firestore...</p>
-            </div>
-          ) : expenses.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-white/15 bg-white/[0.02] py-16 text-center text-slate-400 px-4">
-              <Receipt className="h-10 w-10 text-slate-600 mb-3" />
-              <p className="text-base font-medium text-slate-300">Zatím žádné výdaje</p>
-              <p className="text-xs text-slate-500 mt-1 max-w-xs">
-                Použij AI vstup nebo formulář výše k zapsání prvního nákupu, jídla nebo lístku v Asii.
-              </p>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {expenses.map((expense) => (
-                <article
-                  key={expense.id ?? `${expense.createdAt}-${expense.note}`}
-                  className="group rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5 backdrop-blur-md transition-all hover:bg-white/[0.06] hover:border-white/20"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      {/* Horní řádek: Kategorie & Datum */}
-                      <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-xs font-medium text-emerald-300">
-                          <Tag className="h-3 w-3" />
-                          {expense.category}
-                        </span>
-
-                        <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
-                          <Calendar className="h-3 w-3" />
-                          {formatDate(expense.createdAt)}
-                        </span>
-                      </div>
-
-                      {/* Popis */}
-                      <h3 className="text-base font-semibold text-white tracking-tight break-words">
-                        {expense.note}
-                      </h3>
-
-                      {/* Podnik / Místo */}
-                      {expense.merchant && (
-                        <p className="mt-1 flex items-center gap-1 text-xs text-slate-400">
-                          <MapPin className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                          <span className="truncate">{expense.merchant}</span>
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Částky */}
-                    <div className="text-right shrink-0 flex flex-col items-end">
-                      <div className="text-lg font-bold text-white tracking-tight">
-                        {formatNumber(expense.amountCZK)} <span className="text-xs text-emerald-400">Kč</span>
-                      </div>
-                      <div className="text-xs text-slate-400 font-medium">
-                        {formatNumber(expense.amountOriginal)} {expense.currency}
-                      </div>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

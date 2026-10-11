@@ -60,6 +60,13 @@ export async function parseAIExpense(userInput: string): Promise<FirestoreExpens
       category: {
         type: Type.STRING,
         enum: [
+          "Transportation",
+          "Restaurants",
+          "Drinks",
+          "Coffee",
+          "Groceries",
+          "Accommodation",
+          "Flights",
           "🍺 Pivo & Bar",
           "🍜 Gastro & Jídlo",
           "🚕 Doprava",
@@ -67,7 +74,7 @@ export async function parseAIExpense(userInput: string): Promise<FirestoreExpens
           "🎟️ Zážitky",
           "🛒 Ostatní",
         ],
-        description: "Jedna z předdefinovaných kategorií výdaje",
+        description: "Jedna z předdefinovaných kategorií výdaje: Transportation, Restaurants, Drinks, Coffee, Groceries, Accommodation, Flights",
       },
       note: {
         type: Type.STRING,
@@ -85,7 +92,7 @@ export async function parseAIExpense(userInput: string): Promise<FirestoreExpens
 Z textu uživatele extrahuj přesné informace:
 - 'amountOriginal': číselná hodnota. Převáděj zkratky jako '150k' na 150000, '35k' na 35000 atd.
 - 'currency': měna z povolených hodnot ('VND' | 'THB' | 'LAK' | 'USD' | 'CZK'). Pokud uživatel měnu neuvede, urči ji podle kontextu lokace nebo typu měny ('k' bez specifikace obvykle značí VND nebo THB dle kontextu, např. Pho Bo / Bia Hoi = VND).
-- 'category': přesně jedna z možností: '🍺 Pivo & Bar', '🍜 Gastro & Jídlo', '🚕 Doprava', '🏨 Ubytování', '🎟️ Zážitky', '🛒 Ostatní'.
+- 'category': vyber nejvhodnější kategorii z: 'Transportation' (doprava, taxi, vlak, autobus), 'Restaurants' (jídlo, restaurace, pouliční stánky), 'Drinks' (pivo, bar, alkohol), 'Coffee' (káva, kavárny), 'Groceries' (potraviny, nákupy v 7-Eleven/obchodech), 'Accommodation' (hotel, hostel), 'Flights' (letenky).
 - 'note': stručný český popis výdaje.
 - 'merchant': název podniku nebo obchodu, pokud byl zmíněn (např. '7-Eleven', 'Bia Hoi', 'Grab', 'Pho 10').`;
 
