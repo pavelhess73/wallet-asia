@@ -112,6 +112,14 @@ export const CATEGORY_DEFINITIONS = [
     circleBg: "bg-sky-100 text-sky-600",
     badgeBg: "bg-sky-50 text-sky-700 border-sky-200",
   },
+  {
+    id: "Other",
+    label: "Other",
+    icon: Tag,
+    emoji: "🏷️",
+    circleBg: "bg-slate-100 text-slate-600",
+    badgeBg: "bg-slate-50 text-slate-700 border-slate-200",
+  },
 ] as const;
 
 // Inteligentní mapování libovolné kategorie (včetně starých českých s emoji)
@@ -184,15 +192,19 @@ function getCategoryMeta(catName: string) {
     return CATEGORY_DEFINITIONS[6]; // Flights
   }
 
-  // Výchozí zástupná kategorie pro ostatní
-  return {
-    id: catName || "Other",
-    label: catName || "Ostatní",
-    icon: Tag,
-    emoji: "🏷️",
-    circleBg: "bg-slate-100 text-slate-600",
-    badgeBg: "bg-slate-50 text-slate-700 border-slate-200",
-  };
+  if (
+    norm.includes("other") ||
+    norm.includes("ostatn") ||
+    norm.includes("zážitk") ||
+    norm.includes("zazitk") ||
+    norm.includes("🏷") ||
+    norm.includes("🛒")
+  ) {
+    return CATEGORY_DEFINITIONS[7]; // Other / Ostatní
+  }
+
+  // Výchozí zástupná kategorie pro neznámé či nepropojitelné kategorie
+  return CATEGORY_DEFINITIONS[7];
 }
 
 export default function MainWallet() {
@@ -1230,7 +1242,7 @@ export default function MainWallet() {
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                   Kategorie
                 </label>
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-4 gap-2">
                   {CATEGORY_DEFINITIONS.map((cat) => {
                     const IconComp = cat.icon;
                     const isSelected = manualCategory === cat.id;
