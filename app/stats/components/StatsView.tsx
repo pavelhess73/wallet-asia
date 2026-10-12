@@ -388,7 +388,7 @@ export default function StatsView() {
             <Map className="h-5 w-5" />
             <span className="text-[10px]">Map</span>
           </Link>
-          <Link href="/" className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-slate-600 transition-colors">
+          <Link href="/search" className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-rose-600 transition-colors">
             <Search className="h-5 w-5" />
             <span className="text-[10px]">Search</span>
           </Link>

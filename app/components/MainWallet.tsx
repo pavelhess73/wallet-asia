@@ -1048,16 +1048,13 @@ export default function MainWallet() {
               <span className="text-[10px]">Map</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab("search")}
-              className={`flex flex-col items-center gap-0.5 transition-colors ${
-                activeTab === "search" ? "text-rose-600 font-bold" : "text-slate-400 hover:text-slate-600"
-              }`}
+            <Link
+              href="/search"
+              className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-rose-600 transition-colors"
             >
               <Search className="h-5 w-5" />
               <span className="text-[10px]">Search</span>
-            </button>
+            </Link>
           </div>
         </nav>
       </div>

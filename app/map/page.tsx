@@ -96,10 +96,10 @@ export default function MapPage() {
           <MapPin className="w-5 h-5" />
           <span className="text-[10px]">Map</span>
         </Link>
-        <div className="flex flex-col items-center gap-0.5 text-slate-300 cursor-not-allowed">
+        <Link href="/search" className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-slate-600 transition-colors">
           <Search className="w-5 h-5" />
           <span className="text-[10px] font-medium">Search</span>
-        </div>
+        </Link>
       </nav>
     </div>
   );
