@@ -202,6 +202,10 @@ export default function MainWallet() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
+  // Hydration guard – datumové formátování je locale-závislé a musí běžet
+  // výhradně na klientovi. Zabraňuje Hydration Error #441.
+  const [isClient, setIsClient] = useState<boolean>(false);
+
   // GPS poloha – automaticky vyžádaná při mountu
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
 
@@ -229,6 +233,12 @@ export default function MainWallet() {
   const [note, setNote] = useState<string>("");
   const [merchant, setMerchant] = useState<string>("");
   const [manualCategory, setManualCategory] = useState<string>("Restaurants");
+
+  // Nastavení isClient po mountu – po tomto bodě je bezpečné počítat
+  // locale-závislé datumové řetězce bez rizika Hydration Error #441.
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   // Vyžádání GPS polohy při mountu (tiché – nezobrazuje chybu uživateli)
   useEffect(() => {
@@ -311,13 +321,17 @@ export default function MainWallet() {
   };
 
   // Výpočet Today (dnešní utracená částka v CZK)
+  // Závisí na lokálním čase – počítá se až po mountu (isClient).
   const { todayCZK, todayCount } = useMemo(() => {
+    if (!isClient) return { todayCZK: 0, todayCount: 0 };
     const todayExpenses = expenses.filter((e) => isTodayDate(e.createdAt));
     const sum = todayExpenses.reduce((acc, curr) => acc + (curr.amountCZK || 0), 0);
     return { todayCZK: sum, todayCount: todayExpenses.length };
-  }, [expenses]);
+  }, [expenses, isClient]);
 
-  // Čistý feed výdajů seskupených přímo podle dnů (createdAt)
+  // Čistý feed výdajů seskupených přímo podle dnů (createdAt).
+  // Locale-závislé labely ('Dnes', 'Včera', Intl.DateTimeFormat) se počítají
+  // AŽ po mountu (isClient = true), aby nedošlo k Hydration Error #441.
   const groupedExpenses = useMemo(() => {
     const groups: {
       [dateKey: string]: {
@@ -328,43 +342,48 @@ export default function MainWallet() {
     } = {};
 
     expenses.forEach((exp) => {
-      let dateKey = "Neznámé datum";
-      let label = "Neznámé datum";
+      let dateKey = "unknown";
+      let label = "";
 
       try {
         const d = new Date(exp.createdAt);
         if (!isNaN(d.getTime())) {
           dateKey = d.toISOString().split("T")[0];
 
-          const now = new Date();
-          const isCurrentDay =
-            d.getDate() === now.getDate() &&
-            d.getMonth() === now.getMonth() &&
-            d.getFullYear() === now.getFullYear();
+          if (isClient) {
+            const now = new Date();
+            const isCurrentDay =
+              d.getDate() === now.getDate() &&
+              d.getMonth() === now.getMonth() &&
+              d.getFullYear() === now.getFullYear();
 
-          const yesterday = new Date();
-          yesterday.setDate(now.getDate() - 1);
-          const isYesterday =
-            d.getDate() === yesterday.getDate() &&
-            d.getMonth() === yesterday.getMonth() &&
-            d.getFullYear() === yesterday.getFullYear();
+            const yesterday = new Date();
+            yesterday.setDate(now.getDate() - 1);
+            const isYesterday =
+              d.getDate() === yesterday.getDate() &&
+              d.getMonth() === yesterday.getMonth() &&
+              d.getFullYear() === yesterday.getFullYear();
 
-          const formattedDay = new Intl.DateTimeFormat("cs-CZ", {
-            day: "numeric",
-            month: "long",
-          }).format(d);
+            const formattedDay = new Intl.DateTimeFormat("cs-CZ", {
+              day: "numeric",
+              month: "long",
+            }).format(d);
 
-          if (isCurrentDay) {
-            label = `Dnes • ${formattedDay}`;
-          } else if (isYesterday) {
-            label = `Včera • ${formattedDay}`;
+            if (isCurrentDay) {
+              label = `Dnes • ${formattedDay}`;
+            } else if (isYesterday) {
+              label = `Včera • ${formattedDay}`;
+            } else {
+              label = formattedDay;
+            }
           } else {
-            label = formattedDay;
+            // Server / pre-hydration: prázdný label – klient doplní po mountu
+            label = dateKey;
           }
         }
       } catch {
-        dateKey = "Neznámé datum";
-        label = "Neznámé datum";
+        dateKey = "unknown";
+        label = "";
       }
 
       if (!groups[dateKey]) {
@@ -383,7 +402,7 @@ export default function MainWallet() {
       dateKey,
       ...group,
     }));
-  }, [expenses]);
+  }, [expenses, isClient]);
 
   // Statistiky podle kategorií pro záložku Stats
   const categoryStats = useMemo(() => {
@@ -816,7 +835,7 @@ export default function MainWallet() {
                   {/* Hlavička dne: Datum vlevo ('Dnes • 11. října'), celková částka za den vpravo */}
                   <div className="flex items-center justify-between px-1">
                     <span className="text-xs font-bold text-slate-500 tracking-wide">
-                      {group.label}
+                      {isClient ? group.label : group.dateKey}
                     </span>
                     <span className="text-xs font-black text-slate-800 tracking-tight">
                       {formatNumber(group.totalCZK)} Kč
