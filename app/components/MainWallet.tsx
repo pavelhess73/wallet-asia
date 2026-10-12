@@ -15,6 +15,7 @@ import {
 import { db } from "@/lib/firebase";
 import { parseAIExpense } from "@/app/actions/parseExpense";
 import { parseReceiptImage } from "@/app/actions/parseReceipt";
+import { parseAudioExpense } from "@/app/actions/parseAudioExpense";
 import { Currency, Expense, CURRENCIES } from "@/lib/types";
 import {
   Sparkles,
@@ -43,6 +44,7 @@ import {
   Pencil,
   Trash2,
   Camera,
+  Mic,
 } from "lucide-react";
 
 // Orientační kurzy: 1000 VND = 0.95 CZK, 1 THB = 0.68 CZK, 1000 LAK = 1.1 CZK, 1 USD = 23 CZK, 1 CZK = 1 CZK
@@ -214,6 +216,12 @@ export default function MainWallet() {
   const [aiLoading, setAiLoading] = useState<boolean>(false);
   const [isReceiptScanning, setIsReceiptScanning] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Stavové proměnné pro nahrávání zvuku přes mikrofon
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [isAudioProcessing, setIsAudioProcessing] = useState<boolean>(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   // Stav pro modální okno formuláře (přidání i editace)
   const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
@@ -524,6 +532,139 @@ export default function MainWallet() {
       );
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  // Zahájení nahrávání audia přes navigator.mediaDevices.getUserMedia
+  const startRecording = async () => {
+    try {
+      setErrorMessage(null);
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setErrorMessage("Váš prohlížeč nepodporuje nahrávání zvuku.");
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+
+      let mimeType = "audio/webm";
+      if (typeof MediaRecorder !== "undefined") {
+        if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+          mimeType = "audio/webm;codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/webm")) {
+          mimeType = "audio/webm";
+        } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+          mimeType = "audio/mp4";
+        } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
+          mimeType = "audio/ogg";
+        }
+      }
+
+      const recorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined
+      );
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        // Zastavení všech stop pro okamžité uvolnění mikrofonu
+        stream.getTracks().forEach((track) => track.stop());
+
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+
+        if (audioBlob.size === 0) {
+          setIsRecording(false);
+          setIsAudioProcessing(false);
+          return;
+        }
+
+        setIsAudioProcessing(true);
+        setErrorMessage(null);
+
+        try {
+          const reader = new FileReader();
+          reader.onloadend = async () => {
+            try {
+              const base64Audio = reader.result as string;
+              const parsedAudio = await parseAudioExpense(
+                base64Audio,
+                recorder.mimeType || "audio/webm"
+              );
+
+              const payload = currentLocation
+                ? { ...parsedAudio, location: currentLocation }
+                : parsedAudio;
+
+              await addDoc(collection(db, "expenses"), payload);
+              showSuccess(
+                `Hlasový výdaj uložen: ${parsedAudio.note} (${formatNumber(parsedAudio.amountCZK)} Kč)`
+              );
+            } catch (error) {
+              console.error("Chyba při zpracování hlasového výdaje:", error);
+              setErrorMessage(
+                error instanceof Error
+                  ? error.message
+                  : "Nepodařilo se zpracovat hlasový záznam."
+              );
+            } finally {
+              setIsAudioProcessing(false);
+              setIsRecording(false);
+            }
+          };
+
+          reader.onerror = () => {
+            setErrorMessage("Chyba při čtení audio dat.");
+            setIsAudioProcessing(false);
+            setIsRecording(false);
+          };
+
+          reader.readAsDataURL(audioBlob);
+        } catch (error) {
+          console.error("Chyba při převodu audia:", error);
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Nepodařilo se zpracovat audio."
+          );
+          setIsAudioProcessing(false);
+          setIsRecording(false);
+        }
+      };
+
+      recorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Chyba přístupu k mikrofonu:", err);
+      setErrorMessage(
+        "Nepodařilo se získat přístup k mikrofonu. Povolte prosím mikrofon v prohlížeči."
+      );
+      setIsRecording(false);
+      setIsAudioProcessing(false);
+    }
+  };
+
+  // Ukončení nahrávání
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+  };
+
+  // Přepínač nahrávání
+  const handleToggleRecording = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
     }
   };
 
@@ -954,53 +1095,105 @@ export default function MainWallet() {
           <div className="flex items-center gap-2">
             <form
               onSubmit={handleAISubmit}
-              className="flex-1 flex items-center bg-white shadow-xl shadow-slate-300/40 border border-slate-200/90 rounded-full pl-3.5 pr-1.5 py-1.5 gap-1.5 transition-all focus-within:ring-2 focus-within:ring-rose-500/20 focus-within:border-rose-400"
+              className={`flex-1 flex items-center bg-white shadow-xl shadow-slate-300/40 border rounded-full pl-3.5 pr-1.5 py-1.5 gap-1.5 transition-all ${
+                isRecording
+                  ? "border-red-400 ring-2 ring-red-500/20"
+                  : "border-slate-200/90 focus-within:ring-2 focus-within:ring-rose-500/20 focus-within:border-rose-400"
+              }`}
             >
-              <Sparkles className="h-4 w-4 text-rose-500 shrink-0 animate-pulse" />
-              <input
-                type="text"
-                disabled={aiLoading || isReceiptScanning}
-                value={aiInputText}
-                onChange={(e) => setAiInputText(e.target.value)}
-                placeholder={
-                  isReceiptScanning
-                    ? "Skenuji účtenku..."
-                    : "Zadejte výdaj... (např. 150k oběd)"
-                }
-                className="w-full bg-transparent text-sm text-slate-800 placeholder-slate-400 focus:outline-none disabled:opacity-50 min-w-0"
-              />
+              {isRecording ? (
+                <div className="flex-1 flex items-center gap-2 min-w-0 pl-1">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+                  </span>
+                  <span className="text-xs sm:text-sm font-bold text-red-600 animate-pulse truncate">
+                    Nahrávám...
+                  </span>
+                </div>
+              ) : isAudioProcessing ? (
+                <div className="flex-1 flex items-center gap-2 min-w-0 pl-1 text-rose-600 text-xs sm:text-sm font-medium">
+                  <Loader2 className="h-4 w-4 animate-spin shrink-0 text-rose-500" />
+                  <span className="truncate">Gemini přepisuje...</span>
+                </div>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4 text-rose-500 shrink-0 animate-pulse" />
+                  <input
+                    type="text"
+                    disabled={aiLoading || isReceiptScanning || isAudioProcessing}
+                    value={aiInputText}
+                    onChange={(e) => setAiInputText(e.target.value)}
+                    placeholder={
+                      isReceiptScanning
+                        ? "Skenuji účtenku..."
+                        : "Zadejte výdaj... (např. 150k oběd)"
+                    }
+                    className="w-full bg-transparent text-sm text-slate-800 placeholder-slate-400 focus:outline-none disabled:opacity-50 min-w-0"
+                  />
+                </>
+              )}
 
               {/* Tlačítko fotoaparátu pro nahrání/vyfocení účtenky */}
+              {!isRecording && !isAudioProcessing && (
+                <button
+                  type="button"
+                  disabled={aiLoading || isReceiptScanning}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="shrink-0 h-9 w-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 flex items-center justify-center transition-colors active:scale-95 disabled:opacity-50 cursor-pointer"
+                  title="Vyfotit nebo nahrát účtenku"
+                >
+                  {isReceiptScanning ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-rose-500" />
+                  ) : (
+                    <Camera className="h-4 w-4" />
+                  )}
+                </button>
+              )}
+
+              {/* Tlačítko mikrofonu pro nahrávání hlasového výdaje */}
               <button
                 type="button"
-                disabled={aiLoading || isReceiptScanning}
-                onClick={() => fileInputRef.current?.click()}
-                className="shrink-0 h-9 w-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 flex items-center justify-center transition-colors active:scale-95 disabled:opacity-50 cursor-pointer"
-                title="Vyfotit nebo nahrát účtenku"
+                disabled={aiLoading || isReceiptScanning || isAudioProcessing}
+                onClick={handleToggleRecording}
+                className={`shrink-0 h-9 w-9 rounded-full flex items-center justify-center transition-all active:scale-95 cursor-pointer ${
+                  isRecording
+                    ? "bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-md shadow-red-500/30"
+                    : isAudioProcessing
+                    ? "bg-rose-50 text-rose-500 cursor-not-allowed"
+                    : "bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900"
+                }`}
+                title={
+                  isRecording
+                    ? "Zastavit a analyzovat nahrávku"
+                    : "Nahrát hlasový výdaj"
+                }
               >
-                {isReceiptScanning ? (
+                {isAudioProcessing ? (
                   <Loader2 className="h-4 w-4 animate-spin text-rose-500" />
                 ) : (
-                  <Camera className="h-4 w-4" />
+                  <Mic className="h-4 w-4" />
                 )}
               </button>
 
               {/* Růžové tlačítko pro AI odeslání textu */}
-              <button
-                type="submit"
-                disabled={aiLoading || isReceiptScanning || !aiInputText.trim()}
-                className="shrink-0 h-9 px-3.5 rounded-full bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white font-semibold text-xs shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-                title="Odeslat do AI"
-              >
-                {aiLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <>
-                    <Send className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">AI</span>
-                  </>
-                )}
-              </button>
+              {!isRecording && !isAudioProcessing && (
+                <button
+                  type="submit"
+                  disabled={aiLoading || isReceiptScanning || !aiInputText.trim()}
+                  className="shrink-0 h-9 px-3.5 rounded-full bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white font-semibold text-xs shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Odeslat do AI"
+                >
+                  {aiLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Send className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">AI</span>
+                    </>
+                  )}
+                </button>
+              )}
             </form>
 
             {/* Kulaté tlačítko + pro otevření ručního formuláře */}
