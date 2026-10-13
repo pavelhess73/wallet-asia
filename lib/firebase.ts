@@ -1,5 +1,10 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  getFirestore,
+} from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -11,4 +16,21 @@ const firebaseConfig = {
 };
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+
+// Nastavení offline persistence přes IndexedDB na klientovi (persistentMultipleTabManager)
+let firestoreDb;
+if (typeof window !== "undefined") {
+  try {
+    firestoreDb = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch {
+    firestoreDb = getFirestore(app);
+  }
+} else {
+  firestoreDb = getFirestore(app);
+}
+
+export const db = firestoreDb;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import {
   collection,
@@ -13,11 +13,14 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { parseAIExpense } from "@/app/actions/parseExpense";
-import { parseAudioExpense } from "@/app/actions/parseAudioExpense";
 import { Currency, Expense, CURRENCIES } from "@/lib/types";
 import {
-  Sparkles,
+  fetchExchangeRates,
+  convertAmount,
+  DEFAULT_EXCHANGE_RATES,
+  ExchangeRates,
+} from "@/lib/rates";
+import {
   Loader2,
   Plus,
   Coins,
@@ -33,7 +36,6 @@ import {
   Store,
   X,
   AlertCircle,
-  Send,
   CheckCircle2,
   ReceiptText,
   BarChart3,
@@ -42,17 +44,7 @@ import {
   MapPin,
   Pencil,
   Trash2,
-  Mic,
 } from "lucide-react";
-
-// Orientační kurzy: 1000 VND = 0.95 CZK, 1 THB = 0.68 CZK, 1000 LAK = 1.1 CZK, 1 USD = 23 CZK, 1 CZK = 1 CZK
-const EXCHANGE_RATES: Record<Currency, number> = {
-  VND: 0.95 / 1000,
-  THB: 0.68,
-  LAK: 1.1 / 1000,
-  USD: 23,
-  CZK: 1,
-};
 
 // Seznam hlavních kategorií s ikonami a barvami
 export const CATEGORY_DEFINITIONS = [
@@ -225,16 +217,6 @@ export default function MainWallet() {
   const [activeTab, setActiveTab] = useState<"entries" | "stats" | "map" | "search">("entries");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // Stavové proměnné pro AI vstup
-  const [aiInputText, setAiInputText] = useState<string>("");
-  const [aiLoading, setAiLoading] = useState<boolean>(false);
-
-  // Stavové proměnné pro nahrávání zvuku přes mikrofon
-  const [isRecording, setIsRecording] = useState<boolean>(false);
-  const [isAudioProcessing, setIsAudioProcessing] = useState<boolean>(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-
   // Stav pro modální okno formuláře (přidání i editace)
   const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
@@ -246,10 +228,26 @@ export default function MainWallet() {
   const [merchant, setMerchant] = useState<string>("");
   const [manualCategory, setManualCategory] = useState<string>("Restaurants");
 
+  // Stav pro aktuální měnové kurzy
+  const [rates, setRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
+
   // Nastavení isClient po mountu – po tomto bodě je bezpečné počítat
   // locale-závislé datumové řetězce bez rizika Hydration Error #441.
   useEffect(() => {
     setIsClient(true);
+  }, []);
+
+  // Načtení a kešování směnných kurzů při načtení komponenty
+  useEffect(() => {
+    fetchExchangeRates()
+      .then((fetchedRates) => {
+        if (fetchedRates) {
+          setRates(fetchedRates);
+        }
+      })
+      .catch((err) => {
+        console.warn("Chyba při načítání kurzů:", err);
+      });
   }, []);
 
   // Vyžádání GPS polohy při mountu (tiché – nezobrazuje chybu uživateli)
@@ -443,9 +441,10 @@ export default function MainWallet() {
   }, [expenses, searchQuery]);
 
   // Živý přepočet pro náhled v ručním formuláři
+  const numericAmount = parseFloat(amountOriginal);
   const previewAmountCZK =
-    amountOriginal && !isNaN(Number(amountOriginal))
-      ? Math.round(Number(amountOriginal) * (EXCHANGE_RATES[currency] ?? 1) * 100) / 100
+    !isNaN(numericAmount) && numericAmount > 0
+      ? convertAmount(numericAmount, currency, "CZK", rates)
       : 0;
 
   // Zobrazení toastu o úspěchu
@@ -492,167 +491,6 @@ export default function MainWallet() {
     }
   };
 
-  // Odeslání AI vstupu
-  const handleAISubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!aiInputText.trim() || aiLoading) return;
-
-    setAiLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const parsedExpense = await parseAIExpense(aiInputText);
-      const payload = currentLocation
-        ? { ...parsedExpense, location: currentLocation }
-        : parsedExpense;
-      await addDoc(collection(db, "expenses"), payload);
-      setAiInputText("");
-      showSuccess(`Uloženo: ${parsedExpense.note} (${formatNumber(parsedExpense.amountCZK)} Kč)`);
-    } catch (error) {
-      console.error("Chyba při zpracování AI výdaje:", error);
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Nepodařilo se zpracovat výdaj pomocí AI."
-      );
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
-  // Zahájení nahrávání audia přes navigator.mediaDevices.getUserMedia
-  const startRecording = async () => {
-    try {
-      setErrorMessage(null);
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setErrorMessage("Váš prohlížeč nepodporuje nahrávání zvuku.");
-        return;
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioChunksRef.current = [];
-
-      let mimeType = "audio/webm";
-      if (typeof MediaRecorder !== "undefined") {
-        if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
-          mimeType = "audio/webm;codecs=opus";
-        } else if (MediaRecorder.isTypeSupported("audio/webm")) {
-          mimeType = "audio/webm";
-        } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
-          mimeType = "audio/mp4";
-        } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
-          mimeType = "audio/ogg";
-        }
-      }
-
-      const recorder = new MediaRecorder(
-        stream,
-        mimeType ? { mimeType } : undefined
-      );
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      recorder.onstop = async () => {
-        // Zastavení všech stop pro okamžité uvolnění mikrofonu
-        stream.getTracks().forEach((track) => track.stop());
-
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: recorder.mimeType || "audio/webm",
-        });
-
-        if (audioBlob.size === 0) {
-          setIsRecording(false);
-          setIsAudioProcessing(false);
-          return;
-        }
-
-        setIsAudioProcessing(true);
-        setErrorMessage(null);
-
-        try {
-          const reader = new FileReader();
-          reader.onloadend = async () => {
-            try {
-              const base64Audio = reader.result as string;
-              const parsedAudio = await parseAudioExpense(
-                base64Audio,
-                recorder.mimeType || "audio/webm"
-              );
-
-              const payload = currentLocation
-                ? { ...parsedAudio, location: currentLocation }
-                : parsedAudio;
-
-              await addDoc(collection(db, "expenses"), payload);
-              showSuccess(
-                `Hlasový výdaj uložen: ${parsedAudio.note} (${formatNumber(parsedAudio.amountCZK)} Kč)`
-              );
-            } catch (error) {
-              console.error("Chyba při zpracování hlasového výdaje:", error);
-              setErrorMessage(
-                error instanceof Error
-                  ? error.message
-                  : "Nepodařilo se zpracovat hlasový záznam."
-              );
-            } finally {
-              setIsAudioProcessing(false);
-              setIsRecording(false);
-            }
-          };
-
-          reader.onerror = () => {
-            setErrorMessage("Chyba při čtení audio dat.");
-            setIsAudioProcessing(false);
-            setIsRecording(false);
-          };
-
-          reader.readAsDataURL(audioBlob);
-        } catch (error) {
-          console.error("Chyba při převodu audia:", error);
-          setErrorMessage(
-            error instanceof Error
-              ? error.message
-              : "Nepodařilo se zpracovat audio."
-          );
-          setIsAudioProcessing(false);
-          setIsRecording(false);
-        }
-      };
-
-      recorder.start();
-      setIsRecording(true);
-    } catch (err) {
-      console.error("Chyba přístupu k mikrofonu:", err);
-      setErrorMessage(
-        "Nepodařilo se získat přístup k mikrofonu. Povolte prosím mikrofon v prohlížeči."
-      );
-      setIsRecording(false);
-      setIsAudioProcessing(false);
-    }
-  };
-
-  // Ukončení nahrávání
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      mediaRecorderRef.current.stop();
-    }
-    setIsRecording(false);
-  };
-
-  // Přepínač nahrávání
-  const handleToggleRecording = () => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
-  };
-
   // Odeslání formuláře (nový záznam i aktualizace existujícího)
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -672,8 +510,7 @@ export default function MainWallet() {
     setErrorMessage(null);
 
     try {
-      const rate = EXCHANGE_RATES[currency] ?? 1;
-      const calculatedCZK = Math.round(numericAmount * rate * 100) / 100;
+      const calculatedCZK = convertAmount(numericAmount, currency, "CZK", rates);
 
       if (editingExpense && editingExpense.id) {
         // AKTUALIZACE EXISTUJÍCÍHO VÝDAJE
@@ -1063,103 +900,21 @@ export default function MainWallet() {
         )}
       </main>
 
-      {/* SPODNÍ FIXOVANÁ SEKCE (FLOATING AI BAR + SPODNÍ NAVIGACE, z-index 50) */}
+      {/* SPODNÍ FIXOVANÁ SEKCE (DOMINANTNÍ TLAČÍTKO NOVÝ VÝDAJ + SPODNÍ NAVIGACE, z-index 50) */}
       <div className="fixed bottom-0 left-0 right-0 z-50 pointer-events-none">
-        {/* Plovoucí bílý pilulkový input s ikonou ✨, mikrofonem a tlačítkem + */}
-        <div className="max-w-md mx-auto px-4 pb-2.5 pointer-events-auto sm:max-w-lg">
-          <div className="flex items-center gap-2">
-            <form
-              onSubmit={handleAISubmit}
-              className={`flex-1 flex items-center bg-white shadow-xl shadow-slate-300/40 border rounded-full pl-3.5 pr-1.5 py-1.5 gap-1.5 transition-all ${
-                isRecording
-                  ? "border-red-400 ring-2 ring-red-500/20"
-                  : "border-slate-200/90 focus-within:ring-2 focus-within:ring-rose-500/20 focus-within:border-rose-400"
-              }`}
-            >
-              {isRecording ? (
-                <div className="flex-1 flex items-center gap-2 min-w-0 pl-1">
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
-                  </span>
-                  <span className="text-xs sm:text-sm font-bold text-red-600 animate-pulse truncate">
-                    Nahrávám...
-                  </span>
-                </div>
-              ) : isAudioProcessing ? (
-                <div className="flex-1 flex items-center gap-2 min-w-0 pl-1 text-rose-600 text-xs sm:text-sm font-medium">
-                  <Loader2 className="h-4 w-4 animate-spin shrink-0 text-rose-500" />
-                  <span className="truncate">Gemini přepisuje...</span>
-                </div>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4 text-rose-500 shrink-0 animate-pulse" />
-                  <input
-                    type="text"
-                    disabled={aiLoading || isAudioProcessing}
-                    value={aiInputText}
-                    onChange={(e) => setAiInputText(e.target.value)}
-                    placeholder="Zadejte výdaj... (např. 150k oběd)"
-                    className="w-full bg-transparent text-sm text-slate-800 placeholder-slate-400 focus:outline-none disabled:opacity-50 min-w-0"
-                  />
-                </>
-              )}
-
-              {/* Tlačítko mikrofonu pro nahrávání hlasového výdaje */}
-              <button
-                type="button"
-                disabled={aiLoading || isAudioProcessing}
-                onClick={handleToggleRecording}
-                className={`shrink-0 h-9 w-9 rounded-full flex items-center justify-center transition-all active:scale-95 cursor-pointer ${
-                  isRecording
-                    ? "bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-md shadow-red-500/30"
-                    : isAudioProcessing
-                    ? "bg-rose-50 text-rose-500 cursor-not-allowed"
-                    : "bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900"
-                }`}
-                title={
-                  isRecording
-                    ? "Zastavit a analyzovat nahrávku"
-                    : "Nahrát hlasový výdaj"
-                }
-              >
-                {isAudioProcessing ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-rose-500" />
-                ) : (
-                  <Mic className="h-4 w-4" />
-                )}
-              </button>
-
-              {/* Růžové tlačítko pro AI odeslání textu */}
-              {!isRecording && !isAudioProcessing && (
-                <button
-                  type="submit"
-                  disabled={aiLoading || !aiInputText.trim()}
-                  className="shrink-0 h-9 px-3.5 rounded-full bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white font-semibold text-xs shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Odeslat do AI"
-                >
-                  {aiLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <>
-                      <Send className="h-3.5 w-3.5" />
-                      <span className="hidden sm:inline">AI</span>
-                    </>
-                  )}
-                </button>
-              )}
-            </form>
-
-            {/* Kulaté tlačítko + pro otevření ručního formuláře */}
-            <button
-              type="button"
-              onClick={handleOpenCreate}
-              className="h-12 w-12 rounded-full bg-slate-900 hover:bg-slate-800 text-white shadow-xl shadow-slate-900/25 flex items-center justify-center shrink-0 transition-transform active:scale-95 cursor-pointer"
-              title="Přidat nový výdaj ručně"
-            >
-              <Plus className="h-6 w-6 stroke-[2.3]" />
-            </button>
-          </div>
+        {/* Dominantní plovoucí tlačítko: + Nový výdaj */}
+        <div className="max-w-md mx-auto px-4 pb-3 flex justify-end pointer-events-auto sm:max-w-lg">
+          <button
+            type="button"
+            onClick={handleOpenCreate}
+            className="h-13 px-6 rounded-full bg-gradient-to-r from-rose-500 via-rose-600 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white shadow-xl shadow-rose-500/35 flex items-center gap-2.5 font-bold text-sm tracking-wide transition-all duration-200 active:scale-95 cursor-pointer border border-white/20 hover:shadow-rose-500/50"
+            title="Přidat nový výdaj"
+          >
+            <div className="h-7 w-7 rounded-full bg-white/25 flex items-center justify-center shrink-0">
+              <Plus className="h-5 w-5 stroke-[2.8]" />
+            </div>
+            <span>Nový výdaj</span>
+          </button>
         </div>
 
         {/* Spodní elegantní navigace: Entries, Stats, Map, Search */}
@@ -1275,46 +1030,66 @@ export default function MainWallet() {
               </div>
 
               {/* Částka & Měna */}
-              <div className="grid grid-cols-5 gap-2">
-                <div className="col-span-3">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Částka *
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      required
-                      placeholder="Např. 80"
-                      value={amountOriginal}
-                      onChange={(e) => setAmountOriginal(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-base font-bold text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-500 focus:bg-white"
-                    />
-                    {previewAmountCZK > 0 && (
-                      <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
-                        ≈ {formatNumber(previewAmountCZK)} Kč
-                      </div>
-                    )}
+              <div>
+                <div className="grid grid-cols-5 gap-2">
+                  <div className="col-span-3">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                      Částka *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        required
+                        placeholder="Např. 80"
+                        value={amountOriginal}
+                        onChange={(e) => setAmountOriginal(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-base font-bold text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-500 focus:bg-white"
+                      />
+                      {previewAmountCZK > 0 && currency !== "CZK" && (
+                        <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+                          ≈ {formatNumber(previewAmountCZK)} Kč
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="col-span-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                      Měna *
+                    </label>
+                    <select
+                      value={currency}
+                      onChange={(e) => setCurrency(e.target.value as Currency)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:border-rose-500 focus:bg-white"
+                    >
+                      {CURRENCIES.map((curr) => (
+                        <option key={curr} value={curr}>
+                          {curr}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
-                <div className="col-span-2">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Měna *
-                  </label>
-                  <select
-                    value={currency}
-                    onChange={(e) => setCurrency(e.target.value as Currency)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:border-rose-500 focus:bg-white"
-                  >
-                    {CURRENCIES.map((curr) => (
-                      <option key={curr} value={curr}>
-                        {curr}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {/* Informace o použitém kurzu a přepočtu */}
+                {currency !== "CZK" && (
+                  <p className="text-[11px] text-slate-500 mt-1.5 leading-snug">
+                    {numericAmount > 0 && previewAmountCZK > 0 ? (
+                      <>
+                        Přepočet: {amountOriginal} {currency} ≈ {formatNumber(previewAmountCZK)} CZK{" "}
+                        <span className="text-slate-400">
+                          (kurz 1 CZK = {rates[currency] ? (rates[currency] >= 100 ? Math.round(rates[currency]).toLocaleString("cs-CZ") : rates[currency].toFixed(2)) : "1"} {currency})
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-slate-400">
+                        Kurz 1 CZK = {rates[currency] ? (rates[currency] >= 100 ? Math.round(rates[currency]).toLocaleString("cs-CZ") : rates[currency].toFixed(2)) : "1"} {currency}
+                      </span>
+                    )}
+                  </p>
+                )}
               </div>
 
               {/* Popis */}

@@ -192,8 +192,8 @@ export default function StatsView() {
   }, [expenses, totalCZK]);
 
   const currencyTotals = useMemo(() => {
-    const targetCurrencies: Currency[] = ["THB", "VND", "LAK", "USD", "CZK"];
-    const sums: Record<Currency, number> = { THB: 0, VND: 0, LAK: 0, USD: 0, CZK: 0 };
+    const targetCurrencies: Currency[] = ["THB", "VND", "LAK", "USD", "EUR", "CZK"];
+    const sums: Record<Currency, number> = { THB: 0, VND: 0, LAK: 0, USD: 0, EUR: 0, CZK: 0 };
     expenses.forEach((e) => {
       if (sums[e.currency] !== undefined) sums[e.currency] += e.amountOriginal || 0;
     });
@@ -347,6 +347,7 @@ export default function StatsView() {
                 VND: { flag: "🇻🇳", symbol: "₫" },
                 LAK: { flag: "🇱🇦", symbol: "₭" },
                 USD: { flag: "🇺🇸", symbol: "$" },
+                EUR: { flag: "🇪🇺", symbol: "€" },
                 CZK: { flag: "🇨🇿", symbol: "Kč" },
               };
               const info = meta[currency];

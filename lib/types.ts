@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const CURRENCIES = ["VND", "THB", "LAK", "USD", "CZK"] as const;
+export const CURRENCIES = ["VND", "THB", "LAK", "USD", "EUR", "CZK"] as const;
 export const CurrencySchema = z.enum(CURRENCIES);
 export type Currency = z.infer<typeof CurrencySchema>;
 

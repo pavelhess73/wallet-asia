@@ -72,7 +72,11 @@ Uživatelský dotaz:
 Seznam výdajů:
 ${JSON.stringify(formattedExpenses, null, 2)}`;
 
-  const candidateModels = ["gemini-2.5-flash", "gemini-3.8-flash"];
+  const candidateModels = [
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
+    "gemini-1.5-flash",
+  ];
 
   let rawJsonText: string | null = null;
   let lastError: unknown = null;
