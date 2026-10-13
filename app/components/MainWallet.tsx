@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import {
   collection,
@@ -114,6 +114,56 @@ export const CATEGORY_DEFINITIONS = [
   },
 ] as const;
 
+// Rychlé šablony (Quick Presets) pro okamžité zadávání nejčastějších výdajů
+export interface QuickPreset {
+  id: string;
+  emoji: string;
+  label: string;
+  category: string;
+  defaultNote: string;
+  defaultMerchant?: string;
+  defaultCurrency?: Currency;
+}
+
+export const QUICK_PRESETS: QuickPreset[] = [
+  {
+    id: "food",
+    emoji: "🍜",
+    label: "Jídlo",
+    category: "Restaurants",
+    defaultNote: "Jídlo",
+  },
+  {
+    id: "beer",
+    emoji: "🍺",
+    label: "Pivo",
+    category: "Drinks",
+    defaultNote: "Pivo",
+  },
+  {
+    id: "transport",
+    emoji: "🛵",
+    label: "Doprava",
+    category: "Transportation",
+    defaultNote: "Doprava",
+  },
+  {
+    id: "coffee",
+    emoji: "☕",
+    label: "Káva",
+    category: "Coffee",
+    defaultNote: "Káva",
+  },
+  {
+    id: "seven_eleven",
+    emoji: "🛒",
+    label: "7-Eleven",
+    category: "Groceries",
+    defaultNote: "7-Eleven",
+    defaultMerchant: "7-Eleven",
+  },
+];
+
 // Inteligentní mapování libovolné kategorie (včetně starých českých s emoji)
 function getCategoryMeta(catName: string) {
   const norm = (catName || "").toLowerCase();
@@ -220,6 +270,7 @@ export default function MainWallet() {
   // Stav pro modální okno formuláře (přidání i editace)
   const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const amountInputRef = useRef<HTMLInputElement | null>(null);
 
   // Stavové proměnné pro formulář
   const [amountOriginal, setAmountOriginal] = useState<string>("");
@@ -457,11 +508,29 @@ export default function MainWallet() {
   const handleOpenCreate = () => {
     setEditingExpense(null);
     setAmountOriginal("");
-    setCurrency("VND");
     setNote("");
     setMerchant("");
     setManualCategory("Restaurants");
     setIsManualModalOpen(true);
+    setTimeout(() => {
+      amountInputRef.current?.focus();
+    }, 80);
+  };
+
+  // Aplikace rychlé šablony (Quick Preset) s přímým zaměřením do pole částky
+  const handleApplyPreset = (preset: QuickPreset) => {
+    setEditingExpense(null);
+    setAmountOriginal("");
+    setManualCategory(preset.category);
+    setNote(preset.defaultNote);
+    setMerchant(preset.defaultMerchant || "");
+    if (preset.defaultCurrency) {
+      setCurrency(preset.defaultCurrency);
+    }
+    setIsManualModalOpen(true);
+    setTimeout(() => {
+      amountInputRef.current?.focus();
+    }, 80);
   };
 
   // Otevření modálu pro úpravu existujícího výdaje
@@ -474,6 +543,9 @@ export default function MainWallet() {
     const meta = getCategoryMeta(expense.category);
     setManualCategory(meta.id);
     setIsManualModalOpen(true);
+    setTimeout(() => {
+      amountInputRef.current?.focus();
+    }, 80);
   };
 
   // Mazání výdaje z Firestore
@@ -900,8 +972,26 @@ export default function MainWallet() {
         )}
       </main>
 
-      {/* SPODNÍ FIXOVANÁ SEKCE (DOMINANTNÍ TLAČÍTKO NOVÝ VÝDAJ + SPODNÍ NAVIGACE, z-index 50) */}
+      {/* SPODNÍ FIXOVANÁ SEKCE (RYCHLÉ ŠABLONY + DOMINANTNÍ TLAČÍTKO NOVÝ VÝDAJ + SPODNÍ NAVIGACE, z-index 50) */}
       <div className="fixed bottom-0 left-0 right-0 z-50 pointer-events-none">
+        {/* Lišta s rychlými šablonami (Quick Presets) */}
+        <div className="max-w-md mx-auto px-4 pb-2 pointer-events-auto sm:max-w-lg">
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+            {QUICK_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => handleApplyPreset(preset)}
+                className="shrink-0 px-3.5 py-1.5 rounded-full bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-md shadow-slate-200/50 hover:bg-rose-50 hover:border-rose-300 hover:text-rose-600 text-xs font-bold text-slate-700 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                title={`Rychle přidat: ${preset.label}`}
+              >
+                <span className="text-sm">{preset.emoji}</span>
+                <span>{preset.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Dominantní plovoucí tlačítko: + Nový výdaj */}
         <div className="max-w-md mx-auto px-4 pb-3 flex justify-end pointer-events-auto sm:max-w-lg">
           <button
@@ -992,6 +1082,34 @@ export default function MainWallet() {
             </div>
 
             <form onSubmit={handleManualSubmit} className="flex flex-col gap-4">
+              {/* Rychlé šablony (Quick Presets) */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                  Rychlé šablony
+                </label>
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                  {QUICK_PRESETS.map((preset) => {
+                    const isPresetActive =
+                      manualCategory === preset.category && note === preset.defaultNote;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => handleApplyPreset(preset)}
+                        className={`shrink-0 px-2.5 py-1 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer ${
+                          isPresetActive
+                            ? "bg-rose-50 border-rose-300 text-rose-700 shadow-xs ring-1 ring-rose-300"
+                            : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                        }`}
+                      >
+                        <span className="text-sm">{preset.emoji}</span>
+                        <span>{preset.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Výběr kategorie s lucide ikonami */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
@@ -1038,6 +1156,7 @@ export default function MainWallet() {
                     </label>
                     <div className="relative">
                       <input
+                        ref={amountInputRef}
                         type="number"
                         step="any"
                         min="0"
