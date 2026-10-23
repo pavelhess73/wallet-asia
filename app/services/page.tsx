@@ -20,6 +20,12 @@ import {
   CURRENCIES,
 } from "@/lib/types";
 import {
+  fetchExchangeRates,
+  convertAmount,
+  DEFAULT_EXCHANGE_RATES,
+  ExchangeRates,
+} from "@/lib/rates";
+import {
   Plus,
   X,
   Loader2,
@@ -34,6 +40,8 @@ import {
   CheckCircle2,
   AlertCircle,
   ChevronDown,
+  Coins,
+  Calendar,
 } from "lucide-react";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -340,8 +348,16 @@ export default function ServicesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<ServiceEntry | null>(null);
   const [activeFilter, setActiveFilter] = useState<string>("Vse");
+  const [rates, setRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
 
   useEffect(() => { setIsClient(true); }, []);
+
+  // Nacti aktualni kurzy (s fallbackem na offline keš / default)
+  useEffect(() => {
+    fetchExchangeRates()
+      .then((r) => { if (r) setRates(r); })
+      .catch((err) => console.warn("Chyba pri nacitani kurzu:", err));
+  }, []);
 
   useEffect(() => {
     setIsLoading(true);
@@ -435,6 +451,31 @@ export default function ServicesPage() {
     return map;
   }, [entries]);
 
+  // Celkova utrata za všechny zaznamy (prevedena do CZK)
+  const totalCZK = useMemo(() =>
+    entries.reduce((sum, e) => sum + convertAmount(e.price, e.currency, "CZK", rates), 0),
+    [entries, rates]
+  );
+
+  // Dnesni utrata – pocita se az po mountu (isClient) kvuli Hydration Error #441
+  const todayCZK = useMemo(() => {
+    if (!isClient) return 0;
+    const now = new Date();
+    return entries
+      .filter((e) => {
+        try {
+          const d = new Date(e.createdAt);
+          return d.getDate() === now.getDate() &&
+            d.getMonth() === now.getMonth() &&
+            d.getFullYear() === now.getFullYear();
+        } catch { return false; }
+      })
+      .reduce((sum, e) => sum + convertAmount(e.price, e.currency, "CZK", rates), 0);
+  }, [entries, rates, isClient]);
+
+  const formatCZK = (val: number) =>
+    new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 0 }).format(val);
+
   const pluralZaznamu = (n: number) => n === 1 ? "zaznam" : n < 5 ? "zaznamy" : "zaznamu";
 
   return (
@@ -465,6 +506,45 @@ export default function ServicesPage() {
             <Plus className="h-5 w-5 stroke-[2.5]" />
           </button>
         </header>
+
+        {/* SUMMARY KARTY – Total a Dnes v CZK */}
+        <div className="grid grid-cols-2 gap-3">
+          {/* Karta: Celkem za služby */}
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Celkem</span>
+              <div className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-500">
+                <Coins className="h-3.5 w-3.5" />
+              </div>
+            </div>
+            <div>
+              <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                {formatCZK(totalCZK)}{" "}
+                <span className="text-xs font-semibold text-slate-400">Kč</span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5 font-medium">
+                {entries.length} {pluralZaznamu(entries.length)}
+              </p>
+            </div>
+          </div>
+
+          {/* Karta: Dnes za služby */}
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-rose-500">Dnes</span>
+              <div className="h-7 w-7 rounded-full bg-rose-50 flex items-center justify-center text-rose-500">
+                <Calendar className="h-3.5 w-3.5" />
+              </div>
+            </div>
+            <div>
+              <div className="text-xl sm:text-2xl font-black text-rose-600 tracking-tight">
+                {isClient ? formatCZK(todayCZK) : "–"}{" "}
+                <span className="text-xs font-semibold text-rose-400">Kč</span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5 font-medium">dnesni služby</p>
+            </div>
+          </div>
+        </div>
 
         {entries.length > 0 && (
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 py-1">
