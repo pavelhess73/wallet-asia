@@ -476,6 +476,56 @@ export default function ServicesPage() {
   const formatCZK = (val: number) =>
     new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 0 }).format(val);
 
+  // Agreguje soucty podle puvodni meny
+  const aggregateByCurrency = (subset: ServiceEntry[]): Record<string, number> => {
+    const map: Record<string, number> = {};
+    for (const e of subset) {
+      map[e.currency] = (map[e.currency] ?? 0) + e.price;
+    }
+    return map;
+  };
+
+  // Kompaktni formatovani (VND/LAK zobrazuje v tisicich s "k")
+  const formatLocalCurrency = (amount: number, currency: string): string => {
+    if ((currency === "VND" || currency === "LAK") && amount >= 1000) {
+      const k = amount / 1000;
+      const rounded = k % 1 === 0 ? k.toFixed(0) : k.toFixed(1);
+      return `${rounded}k ${currency}`;
+    }
+    return `${new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 0 }).format(amount)} ${currency}`;
+  };
+
+  // Prevede mapu mena->soucet na zobrazitelny retezec, napr. "200 THB · 150k VND"
+  const formatLocalAmounts = (byCurrency: Record<string, number>): string => {
+    return Object.entries(byCurrency)
+      .filter(([, v]) => v > 0)
+      .map(([cur, val]) => formatLocalCurrency(val, cur))
+      .join(" · ");
+  };
+
+  // Agregace po menach – vsechny zaznamy
+  const totalByCurrency = useMemo(
+    () => aggregateByCurrency(entries),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [entries]
+  );
+
+  // Agregace po menach – dnesni zaznamy (az po mountu)
+  const todayByCurrency = useMemo(() => {
+    if (!isClient) return {};
+    const now = new Date();
+    const todayEntries = entries.filter((e) => {
+      try {
+        const d = new Date(e.createdAt);
+        return d.getDate() === now.getDate() &&
+          d.getMonth() === now.getMonth() &&
+          d.getFullYear() === now.getFullYear();
+      } catch { return false; }
+    });
+    return aggregateByCurrency(todayEntries);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries, isClient]);
+
   const pluralZaznamu = (n: number) => n === 1 ? "zaznam" : n < 5 ? "zaznamy" : "zaznamu";
 
   return (
@@ -525,6 +575,11 @@ export default function ServicesPage() {
               <p className="text-[11px] text-slate-400 mt-0.5 font-medium">
                 {entries.length} {pluralZaznamu(entries.length)}
               </p>
+              {Object.keys(totalByCurrency).length > 0 && (
+                <p className="text-[10px] text-slate-400 mt-1 leading-snug truncate">
+                  {formatLocalAmounts(totalByCurrency)}
+                </p>
+              )}
             </div>
           </div>
 
@@ -542,6 +597,11 @@ export default function ServicesPage() {
                 <span className="text-xs font-semibold text-rose-400">Kč</span>
               </div>
               <p className="text-[11px] text-slate-400 mt-0.5 font-medium">dnesni služby</p>
+              {isClient && Object.keys(todayByCurrency).length > 0 && (
+                <p className="text-[10px] text-slate-400 mt-1 leading-snug truncate">
+                  {formatLocalAmounts(todayByCurrency)}
+                </p>
+              )}
             </div>
           </div>
         </div>
