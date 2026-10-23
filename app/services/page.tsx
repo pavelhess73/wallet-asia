@@ -14,11 +14,19 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
+  ServiceCategory,
   ServiceEntry,
-  SERVICE_CATEGORIES,
-  SERVICE_CATEGORY_DEFS,
+  getServiceCatStyle,
+  DEFAULT_SERVICE_CATEGORIES,
   CURRENCIES,
 } from "@/lib/types";
+import {
+  subscribeToCategories,
+  seedDefaultCategoriesIfEmpty,
+  addCategory,
+  updateCategory,
+  deleteCategory as deleteCategoryDoc,
+} from "@/lib/servicesStore";
 import {
   fetchExchangeRates,
   convertAmount,
@@ -42,6 +50,7 @@ import {
   ChevronDown,
   Coins,
   Calendar,
+  Settings2,
 } from "lucide-react";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -58,11 +67,19 @@ function formatDate(iso: string): string {
   }
 }
 
-function getCatDef(category: string) {
-  return (
-    SERVICE_CATEGORY_DEFS[category as keyof typeof SERVICE_CATEGORY_DEFS] ??
-    SERVICE_CATEGORY_DEFS["Jiné"]
-  );
+function getCatDef(category: string, cats: ServiceCategory[]) {
+  const cat = cats.find((c) => c.name === category) ?? {
+    id: "",
+    name: category,
+    icon: "🏷️",
+    isDefault: false,
+  };
+  const style = getServiceCatStyle(cat);
+  return {
+    ...cat,
+    ...style,
+    emoji: cat.icon,
+  };
 }
 
 // ─── Star rating component ───────────────────────────────────────────────────
@@ -137,17 +154,22 @@ function ServiceCard({
   onEdit,
   onDelete,
   isClient,
+  categories,
 }: {
   entry: ServiceEntry;
   onEdit: (e: ServiceEntry) => void;
   onDelete: (id: string) => void;
   isClient: boolean;
+  categories: ServiceCategory[];
 }) {
-  const cat = getCatDef(entry.category);
+  const cat = getCatDef(entry.category, categories);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
-    <article className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+    <article
+      onClick={() => onEdit(entry)}
+      className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden cursor-pointer hover:border-slate-300 transition-colors"
+    >
       <div className={`h-1 w-full ${cat.bgColor}`} />
       <div className="p-4">
         <div className="flex items-start justify-between gap-2">
@@ -163,17 +185,39 @@ function ServiceCard({
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button type="button" onClick={() => onEdit(entry)} className="h-7 w-7 rounded-full bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors" aria-label="Upravit">
+          <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => onEdit(entry)}
+              className="h-7 w-7 rounded-full bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors"
+              aria-label="Upravit"
+            >
               <Pencil className="h-3.5 w-3.5" />
             </button>
             {confirmDelete ? (
               <div className="flex items-center gap-1">
-                <button type="button" onClick={() => onDelete(entry.id)} className="h-7 px-2 rounded-full bg-red-500 text-white text-[10px] font-bold">Smazat</button>
-                <button type="button" onClick={() => setConfirmDelete(false)} className="h-7 w-7 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center"><X className="h-3.5 w-3.5" /></button>
+                <button
+                  type="button"
+                  onClick={() => onDelete(entry.id)}
+                  className="h-7 px-2 rounded-full bg-red-500 text-white text-[10px] font-bold"
+                >
+                  Smazat
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(false)}
+                  className="h-7 w-7 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
               </div>
             ) : (
-              <button type="button" onClick={() => setConfirmDelete(true)} className="h-7 w-7 rounded-full bg-slate-50 hover:bg-red-50 text-slate-400 hover:text-red-500 flex items-center justify-center transition-colors" aria-label="Smazat">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                className="h-7 w-7 rounded-full bg-slate-50 hover:bg-red-50 text-slate-400 hover:text-red-500 flex items-center justify-center transition-colors"
+                aria-label="Smazat"
+              >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             )}
@@ -208,12 +252,221 @@ function ServiceCard({
   );
 }
 
-// ─── Modal Form ───────────────────────────────────────────────────────────────
+// ─── Manage Categories Panel ─────────────────────────────────────────────────
+
+function ManageCategoriesPanel({
+  cats,
+  onClose,
+}: {
+  cats: ServiceCategory[];
+  onClose: () => void;
+}) {
+  const [newName, setNewName] = useState("");
+  const [newIcon, setNewIcon] = useState("");
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editOldName, setEditOldName] = useState("");
+  const [editIcon, setEditIcon] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  const handleAdd = async () => {
+    if (!newName.trim() || busy) return;
+    setBusy(true);
+    try {
+      await addCategory(newName, newIcon || "🏷️", cats.length);
+      setNewName("");
+      setNewIcon("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startEdit = (cat: ServiceCategory) => {
+    setEditId(cat.id);
+    setEditName(cat.name);
+    setEditOldName(cat.name);
+    setEditIcon(cat.icon);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editId || !editName.trim() || busy) return;
+    setBusy(true);
+    try {
+      await updateCategory(editId, { name: editName, icon: editIcon }, editOldName);
+      setEditId(null);
+    } catch (err) {
+      console.error("Chyba při úpravě kategorie:", err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setBusy(true);
+    try {
+      await deleteCategoryDoc(id);
+      setConfirmDelete(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-slate-950/60 backdrop-blur-sm p-0 sm:p-4"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      <div
+        className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[85vh] overflow-hidden animate-in slide-in-from-bottom-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 shrink-0">
+          <div>
+            <h3 className="text-base font-black text-slate-900">Spravovat typy služeb</h3>
+            <p className="text-[11px] text-slate-400 mt-0.5">Přidej, uprav nebo smaž vlastní kategorie</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-8 w-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* List */}
+        <div className="overflow-y-auto flex-1 px-5 py-3 flex flex-col gap-2">
+          {cats.map((cat) => {
+            const style = getServiceCatStyle(cat);
+            const isEditing = editId === cat.id;
+            const isConfirm = confirmDelete === cat.id;
+            return (
+              <div key={cat.id} className="flex items-center gap-2 p-1.5 rounded-xl hover:bg-slate-50 transition-colors">
+                {isEditing ? (
+                  <>
+                    <input
+                      value={editIcon}
+                      onChange={(e) => setEditIcon(e.target.value)}
+                      className="w-12 text-center text-xl rounded-xl border border-slate-200 bg-white py-1.5 focus:outline-none focus:border-rose-400"
+                      maxLength={4}
+                      placeholder="🏷️"
+                    />
+                    <input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSaveEdit()}
+                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-900 focus:outline-none focus:border-rose-400 font-medium"
+                      placeholder="Název kategorie"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveEdit}
+                      disabled={busy || !editName.trim()}
+                      className="h-8 px-3 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold disabled:opacity-50 transition-colors shadow-sm"
+                    >
+                      OK
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditId(null)}
+                      className="h-8 w-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className={`h-9 w-9 rounded-xl flex items-center justify-center text-lg shrink-0 border ${style.bgColor} ${style.borderColor}`}>
+                      {cat.icon}
+                    </span>
+                    <span className="flex-1 text-sm font-semibold text-slate-800 truncate">{cat.name}</span>
+                    {cat.isDefault && (
+                      <span className="text-[10px] text-slate-400 shrink-0 font-medium bg-slate-100 px-1.5 py-0.5 rounded-md">výchozí</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => startEdit(cat)}
+                      className="h-7 w-7 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition-colors"
+                      title="Upravit kategorii"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    {isConfirm ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(cat.id)}
+                          disabled={busy}
+                          className="h-7 px-2 rounded-full bg-red-500 text-white text-[10px] font-bold"
+                        >
+                          Smazat
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDelete(null)}
+                          className="h-7 w-7 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDelete(cat.id)}
+                        className="h-7 w-7 rounded-full bg-slate-100 hover:bg-red-50 text-slate-400 hover:text-red-500 flex items-center justify-center transition-colors"
+                        title="Smazat kategorii"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Add new */}
+          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2">
+            <input
+              value={newIcon}
+              onChange={(e) => setNewIcon(e.target.value)}
+              className="w-12 text-center text-xl rounded-xl border border-slate-200 bg-slate-50 py-1.5 focus:outline-none focus:border-rose-400"
+              maxLength={4}
+              placeholder="🏷️"
+            />
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+              className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-400"
+              placeholder="Nová kategorie…"
+            />
+            <button
+              type="button"
+              onClick={handleAdd}
+              disabled={busy || !newName.trim()}
+              className="h-8 px-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 text-white text-xs font-bold disabled:opacity-40 shrink-0 shadow-sm"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 const DEFAULT_FORM = {
   name: "",
   location: "",
-  category: SERVICE_CATEGORIES[0] as string,
+  category: "",   // dynamicky naplneno prvni kategorii pri otevreni modalu
   itemsRaw: "",
   price: "",
   currency: "THB",
@@ -228,15 +481,29 @@ function ServiceModal({
   onClose,
   onSubmit,
   isSubmitting,
+  categories,
 }: {
   initial: Partial<FormState> & { id?: string };
   onClose: () => void;
   onSubmit: (data: FormState, id?: string) => Promise<void>;
   isSubmitting: boolean;
+  categories: ServiceCategory[];
 }) {
-  const [form, setForm] = useState<FormState>({ ...DEFAULT_FORM, ...initial, itemsRaw: initial.itemsRaw ?? "" });
+  const [form, setForm] = useState<FormState>(() => ({
+    ...DEFAULT_FORM,
+    category: initial.category || categories[0]?.name || "",
+    ...initial,
+    itemsRaw: initial.itemsRaw ?? "",
+  }));
+  const [showManage, setShowManage] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   useEffect(() => { setTimeout(() => nameRef.current?.focus(), 80); }, []);
+  // Pokud chybi kategorie a seznam se nacetl, nastavit prvni dostupnou
+  useEffect(() => {
+    if (!form.category && categories.length > 0) {
+      setForm((f) => ({ ...f, category: categories[0]?.name ?? "" }));
+    }
+  }, [categories, form.category]);
   const set = (field: keyof FormState, value: string | number) => setForm((f) => ({ ...f, [field]: value }));
   const handleSubmit = async (e: React.FormEvent) => { e.preventDefault(); await onSubmit(form, initial.id); };
   const isEdit = Boolean(initial.id);
@@ -246,29 +513,50 @@ function ServiceModal({
       <div className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 flex flex-col animate-in slide-in-from-bottom-5 max-h-[92vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 shrink-0">
           <div>
-            <h3 className="text-base font-black text-slate-900">{isEdit ? "Upravit zaznam" : "Novy zaznam služby"}</h3>
-            <p className="text-[11px] text-slate-400 mt-0.5">{isEdit ? "Upravte udaje zaznamu" : "Zaznamenej využitou službu na ceste"}</p>
+            <h3 className="text-base font-black text-slate-900">{isEdit ? "Upravit zaznam" : "Novy zaznam sluzby"}</h3>
+            <p className="text-[11px] text-slate-400 mt-0.5">{isEdit ? "Upravte udaje zaznamu" : "Zaznamenej využitou sluzbu na ceste"}</p>
           </div>
-          <button type="button" onClick={onClose} className="h-8 w-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors">
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button type="button" onClick={() => setShowManage(true)}
+              className="h-8 w-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors"
+              title="Spravovat typy sluzeb">
+              <Settings2 className="h-4 w-4" />
+            </button>
+            <button type="button" onClick={onClose} className="h-8 w-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="overflow-y-auto flex-1 px-5 py-4 flex flex-col gap-4">
           <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">Typ služby</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Typ sluzby</label>
+              <button type="button" onClick={() => setShowManage(true)}
+                className="text-[10px] text-rose-500 font-semibold hover:underline">+ Spravovat</button>
+            </div>
             <div className="grid grid-cols-4 gap-1.5">
-              {SERVICE_CATEGORIES.map((cat) => {
-                const def = SERVICE_CATEGORY_DEFS[cat];
-                const active = form.category === cat;
+              {categories.map((cat) => {
+                const style = getServiceCatStyle(cat);
+                const active = form.category === cat.name;
                 return (
-                  <button key={cat} type="button" onClick={() => set("category", cat)}
-                    className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition-all text-[11px] font-semibold ${active ? `${def.bgColor} ${def.borderColor} ${def.color}` : "bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100"}`}>
-                    <span className="text-lg">{def.emoji}</span>
-                    <span className="truncate w-full text-center">{cat}</span>
+                  <button key={cat.id} type="button" onClick={() => set("category", cat.name)}
+                    className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition-all text-[11px] font-semibold ${
+                      active
+                        ? `${style.bgColor} ${style.borderColor} ${style.color} ring-1 ${style.borderColor.replace("border-", "ring-")}`
+                        : "bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100"
+                    }`}>
+                    <span className="text-lg">{cat.icon}</span>
+                    <span className="truncate w-full text-center">{cat.name}</span>
                   </button>
                 );
               })}
+              {/* Zkratka: pridat novou kategorii */}
+              <button type="button" onClick={() => setShowManage(true)}
+                className="p-2 rounded-xl border border-dashed border-slate-300 flex flex-col items-center gap-1 text-[11px] font-semibold text-slate-400 hover:border-rose-300 hover:text-rose-400 transition-all">
+                <Plus className="h-5 w-5" />
+                <span>Pridat</span>
+              </button>
             </div>
           </div>
 
@@ -333,6 +621,7 @@ function ServiceModal({
           </button>
         </form>
       </div>
+      {showManage && <ManageCategoriesPanel cats={categories} onClose={() => setShowManage(false)} />}
     </div>
   );
 }
@@ -341,6 +630,7 @@ function ServiceModal({
 
 export default function ServicesPage() {
   const [entries, setEntries] = useState<ServiceEntry[]>([]);
+  const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isClient, setIsClient] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -352,11 +642,21 @@ export default function ServicesPage() {
 
   useEffect(() => { setIsClient(true); }, []);
 
-  // Nacti aktualni kurzy (s fallbackem na offline keš / default)
+  // Nacti aktualni kurzy
   useEffect(() => {
     fetchExchangeRates()
       .then((r) => { if (r) setRates(r); })
       .catch((err) => console.warn("Chyba pri nacitani kurzu:", err));
+  }, []);
+
+  // Firestore listener pro kategorie + seedovani pri prvnim spusteni
+  useEffect(() => {
+    seedDefaultCategoriesIfEmpty().catch((e) => console.warn("seed:", e));
+    const unsub = subscribeToCategories(
+      (cats) => setCategories(cats),
+      (err) => console.error("categories listener:", err)
+    );
+    return () => unsub();
   }, []);
 
   useEffect(() => {
@@ -429,13 +729,13 @@ export default function ServicesPage() {
     if (!editingEntry) return {};
     return {
       id: editingEntry.id,
-      name: editingEntry.name,
-      location: editingEntry.location,
-      category: editingEntry.category,
-      itemsRaw: editingEntry.items.join("\n"),
-      price: String(editingEntry.price),
-      currency: editingEntry.currency,
-      rating: editingEntry.rating,
+      name: editingEntry.name || "",
+      location: editingEntry.location || "",
+      category: editingEntry.category || "",
+      itemsRaw: Array.isArray(editingEntry.items) ? editingEntry.items.join("\n") : "",
+      price: editingEntry.price !== undefined ? String(editingEntry.price) : "",
+      currency: editingEntry.currency || "THB",
+      rating: editingEntry.rating ?? 5,
       note: editingEntry.note ?? "",
     };
   }, [editingEntry]);
@@ -608,17 +908,20 @@ export default function ServicesPage() {
 
         {entries.length > 0 && (
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 py-1">
-            {["Vse", ...SERVICE_CATEGORIES].map((cat) => {
-              const isAll = cat === "Vse";
-              const def = isAll ? null : getCatDef(cat);
-              const active = activeFilter === cat;
-              const count = counts[cat] ?? 0;
-              if (!isAll && count === 0) return null;
+            {/* Vse */}
+            <button type="button" onClick={() => setActiveFilter("Vse")}
+              className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${activeFilter === "Vse" ? "bg-rose-500 text-white border-rose-500 shadow-md shadow-rose-400/30" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"}`}>
+              Vse
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${activeFilter === "Vse" ? "bg-white/25 text-white" : "bg-slate-100 text-slate-500"}`}>{entries.length}</span>
+            </button>
+            {categories.filter((cat) => (counts[cat.name] ?? 0) > 0).map((cat) => {
+              const active = activeFilter === cat.name;
+              const count = counts[cat.name] ?? 0;
               return (
-                <button key={cat} type="button" onClick={() => setActiveFilter(cat)}
+                <button key={cat.id} type="button" onClick={() => setActiveFilter(cat.name)}
                   className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${active ? "bg-rose-500 text-white border-rose-500 shadow-md shadow-rose-400/30" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"}`}>
-                  {def && <span>{def.emoji}</span>}
-                  {cat}
+                  <span>{cat.icon}</span>
+                  {cat.name}
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${active ? "bg-white/25 text-white" : "bg-slate-100 text-slate-500"}`}>{count}</span>
                 </button>
               );
@@ -639,7 +942,7 @@ export default function ServicesPage() {
         ) : (
           <div className="flex flex-col gap-3">
             {filtered.map((entry) => (
-              <ServiceCard key={entry.id} entry={entry} onEdit={openEdit} onDelete={handleDelete} isClient={isClient} />
+              <ServiceCard key={entry.id} entry={entry} onEdit={openEdit} onDelete={handleDelete} isClient={isClient} categories={categories} />
             ))}
           </div>
         )}
@@ -674,10 +977,12 @@ export default function ServicesPage() {
 
       {modalOpen && (
         <ServiceModal
+          key={editingEntry?.id ?? "new"}
           initial={modalInitial}
           onClose={() => { setModalOpen(false); setEditingEntry(null); }}
           onSubmit={handleSubmit}
           isSubmitting={isSubmitting}
+          categories={categories}
         />
       )}
     </div>

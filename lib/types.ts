@@ -230,17 +230,18 @@ export const SERVICE_CATEGORIES = [
   "Jiné",
 ] as const;
 
-export type ServiceCategory = (typeof SERVICE_CATEGORIES)[number];
+/** Klíče statického číselníku (jen pro SERVICE_CATEGORY_DEFS) */
+export type ServiceCatKey = (typeof SERVICE_CATEGORIES)[number];
 
 export interface ServiceCategoryDef {
-  id: ServiceCategory;
+  id: ServiceCatKey;
   emoji: string;
-  color: string;        // Tailwind text-color class
-  bgColor: string;      // Tailwind bg-color class
-  borderColor: string;  // Tailwind border-color class
+  color: string;
+  bgColor: string;
+  borderColor: string;
 }
 
-export const SERVICE_CATEGORY_DEFS: Record<ServiceCategory, ServiceCategoryDef> = {
+export const SERVICE_CATEGORY_DEFS: Record<ServiceCatKey, ServiceCategoryDef> = {
   Masáže:    { id: "Masáže",    emoji: "💆", color: "text-pink-700",    bgColor: "bg-pink-50",    borderColor: "border-pink-200" },
   Ubytování: { id: "Ubytování", emoji: "🏨", color: "text-blue-700",   bgColor: "bg-blue-50",   borderColor: "border-blue-200"  },
   Prádelna:  { id: "Prádelna",  emoji: "🫧", color: "text-cyan-700",   bgColor: "bg-cyan-50",   borderColor: "border-cyan-200"  },
@@ -249,6 +250,53 @@ export const SERVICE_CATEGORY_DEFS: Record<ServiceCategory, ServiceCategoryDef> 
   Zdraví:    { id: "Zdraví",    emoji: "💊", color: "text-green-700",  bgColor: "bg-green-50",  borderColor: "border-green-200" },
   Jiné:      { id: "Jiné",      emoji: "🏷️", color: "text-slate-700",  bgColor: "bg-slate-50",  borderColor: "border-slate-200" },
 };
+
+// ─── Dynamické uživatelské kategorie (Firestore) ───────────────────────────
+
+/** Uživatelsky spravovaná kategorie uložená ve Firestore */
+export interface ServiceCategory {
+  id: string;          // Firestore document ID
+  name: string;        // Název kategorie, např. "Kadeřník"
+  icon: string;        // Emoji, např. "✂️"
+  isDefault?: boolean; // Předdefinovaná kategorie (seedovaná)
+  order?: number;      // Pořadí zobrazení
+}
+
+/** Výchozí seedovací seznam synchronizovaný se statickým číselníkem */
+export const DEFAULT_SERVICE_CATEGORIES: Omit<ServiceCategory, "id">[] = [
+  { name: "Masáže",    icon: "💆", isDefault: true, order: 0 },
+  { name: "Ubytování", icon: "🏨", isDefault: true, order: 1 },
+  { name: "Prádelna",  icon: "🫧", isDefault: true, order: 2 },
+  { name: "Půjčovna",  icon: "🛵", isDefault: true, order: 3 },
+  { name: "Výlety",    icon: "⛵", isDefault: true, order: 4 },
+  { name: "Zdraví",    icon: "💊", isDefault: true, order: 5 },
+  { name: "Jiné",      icon: "🏷️", isDefault: true, order: 6 },
+];
+
+/** Cyklická paleta pro uživatelské (ne-defaultní) kategorie */
+const USER_CAT_PALETTE = [
+  { color: "text-violet-700", bgColor: "bg-violet-50", borderColor: "border-violet-200" },
+  { color: "text-amber-700",  bgColor: "bg-amber-50",  borderColor: "border-amber-200"  },
+  { color: "text-teal-700",   bgColor: "bg-teal-50",   borderColor: "border-teal-200"   },
+  { color: "text-rose-700",   bgColor: "bg-rose-50",   borderColor: "border-rose-200"   },
+  { color: "text-indigo-700", bgColor: "bg-indigo-50", borderColor: "border-indigo-200" },
+  { color: "text-lime-700",   bgColor: "bg-lime-50",   borderColor: "border-lime-200"   },
+];
+
+/** Vrátí Tailwind třídy pro libovolnou kategorii (statickou i uživatelskou) */
+export function getServiceCatStyle(
+  cat: ServiceCategory
+): { color: string; bgColor: string; borderColor: string } {
+  // Zkus statický číselník
+  const staticKey = cat.name as ServiceCatKey;
+  if (SERVICE_CATEGORY_DEFS[staticKey]) {
+    const def = SERVICE_CATEGORY_DEFS[staticKey];
+    return { color: def.color, bgColor: def.bgColor, borderColor: def.borderColor };
+  }
+  // Fallback: deterministická barva podle pořadí / indexu
+  const idx = (cat.order ?? 0) % USER_CAT_PALETTE.length;
+  return USER_CAT_PALETTE[idx];
+}
 
 export interface ServiceEntry {
   id: string;
