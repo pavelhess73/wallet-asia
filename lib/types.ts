@@ -215,3 +215,50 @@ export const ExpenseSchema = z.object({
 });
 
 export type Expense = z.infer<typeof ExpenseSchema>;
+
+// ─────────────────────────────────────────────
+//  Modul Deník Služeb
+// ─────────────────────────────────────────────
+
+export const SERVICE_CATEGORIES = [
+  "Masáže",
+  "Ubytování",
+  "Prádelna",
+  "Půjčovna",
+  "Výlety",
+  "Zdraví",
+  "Jiné",
+] as const;
+
+export type ServiceCategory = (typeof SERVICE_CATEGORIES)[number];
+
+export interface ServiceCategoryDef {
+  id: ServiceCategory;
+  emoji: string;
+  color: string;        // Tailwind text-color class
+  bgColor: string;      // Tailwind bg-color class
+  borderColor: string;  // Tailwind border-color class
+}
+
+export const SERVICE_CATEGORY_DEFS: Record<ServiceCategory, ServiceCategoryDef> = {
+  Masáže:    { id: "Masáže",    emoji: "💆", color: "text-pink-700",    bgColor: "bg-pink-50",    borderColor: "border-pink-200" },
+  Ubytování: { id: "Ubytování", emoji: "🏨", color: "text-blue-700",   bgColor: "bg-blue-50",   borderColor: "border-blue-200"  },
+  Prádelna:  { id: "Prádelna",  emoji: "🫧", color: "text-cyan-700",   bgColor: "bg-cyan-50",   borderColor: "border-cyan-200"  },
+  Půjčovna:  { id: "Půjčovna",  emoji: "🛵", color: "text-orange-700", bgColor: "bg-orange-50", borderColor: "border-orange-200" },
+  Výlety:    { id: "Výlety",    emoji: "⛵", color: "text-sky-700",    bgColor: "bg-sky-50",    borderColor: "border-sky-200"   },
+  Zdraví:    { id: "Zdraví",    emoji: "💊", color: "text-green-700",  bgColor: "bg-green-50",  borderColor: "border-green-200" },
+  Jiné:      { id: "Jiné",      emoji: "🏷️", color: "text-slate-700",  bgColor: "bg-slate-50",  borderColor: "border-slate-200" },
+};
+
+export interface ServiceEntry {
+  id: string;
+  name: string;        // NÁZEV (např. "Massage World")
+  location: string;    // MÍSTO (např. "Chiang Mai - Old City")
+  category: string;    // TYP SLUŽBY
+  items: string[];     // KONKRÉTNÍ SLUŽBY (pole řádků)
+  price: number;       // CENA
+  currency: string;    // MĚNA
+  rating: number;      // SPOKOJENOST (1–5)
+  note?: string;       // Poznámka / heslo / kontakt
+  createdAt: string;   // ISO Date string
+}
