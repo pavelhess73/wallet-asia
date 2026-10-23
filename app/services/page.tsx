@@ -3,17 +3,6 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import {
-  collection,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  query,
-  orderBy,
-  onSnapshot,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import {
   ServiceCategory,
   ServiceEntry,
   getServiceCatStyle,
@@ -21,12 +10,17 @@ import {
   CURRENCIES,
 } from "@/lib/types";
 import {
-  subscribeToCategories,
-  seedDefaultCategoriesIfEmpty,
-  addCategory,
-  updateCategory,
-  deleteCategory as deleteCategoryDoc,
+  subscribeToServices,
+  deleteService,
+  addService,
+  updateService,
 } from "@/lib/servicesStore";
+import {
+  subscribeToServiceCategories,
+  initDefaultCategoriesIfNeeded,
+  getCachedServiceCategories,
+} from "@/lib/serviceCategories";
+import ManageCategoriesModal from "@/app/services/components/ManageCategoriesModal";
 import {
   fetchExchangeRates,
   convertAmount,
@@ -252,215 +246,7 @@ function ServiceCard({
   );
 }
 
-// ─── Manage Categories Panel ─────────────────────────────────────────────────
-
-function ManageCategoriesPanel({
-  cats,
-  onClose,
-}: {
-  cats: ServiceCategory[];
-  onClose: () => void;
-}) {
-  const [newName, setNewName] = useState("");
-  const [newIcon, setNewIcon] = useState("");
-  const [editId, setEditId] = useState<string | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editOldName, setEditOldName] = useState("");
-  const [editIcon, setEditIcon] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-
-  const handleAdd = async () => {
-    if (!newName.trim() || busy) return;
-    setBusy(true);
-    try {
-      await addCategory(newName, newIcon || "🏷️", cats.length);
-      setNewName("");
-      setNewIcon("");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const startEdit = (cat: ServiceCategory) => {
-    setEditId(cat.id);
-    setEditName(cat.name);
-    setEditOldName(cat.name);
-    setEditIcon(cat.icon);
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editId || !editName.trim() || busy) return;
-    setBusy(true);
-    try {
-      await updateCategory(editId, { name: editName, icon: editIcon }, editOldName);
-      setEditId(null);
-    } catch (err) {
-      console.error("Chyba při úpravě kategorie:", err);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    setBusy(true);
-    try {
-      await deleteCategoryDoc(id);
-      setConfirmDelete(null);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-slate-950/60 backdrop-blur-sm p-0 sm:p-4"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClose();
-      }}
-    >
-      <div
-        className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[85vh] overflow-hidden animate-in slide-in-from-bottom-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 shrink-0">
-          <div>
-            <h3 className="text-base font-black text-slate-900">Spravovat typy služeb</h3>
-            <p className="text-[11px] text-slate-400 mt-0.5">Přidej, uprav nebo smaž vlastní kategorie</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="h-8 w-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* List */}
-        <div className="overflow-y-auto flex-1 px-5 py-3 flex flex-col gap-2">
-          {cats.map((cat) => {
-            const style = getServiceCatStyle(cat);
-            const isEditing = editId === cat.id;
-            const isConfirm = confirmDelete === cat.id;
-            return (
-              <div key={cat.id} className="flex items-center gap-2 p-1.5 rounded-xl hover:bg-slate-50 transition-colors">
-                {isEditing ? (
-                  <>
-                    <input
-                      value={editIcon}
-                      onChange={(e) => setEditIcon(e.target.value)}
-                      className="w-12 text-center text-xl rounded-xl border border-slate-200 bg-white py-1.5 focus:outline-none focus:border-rose-400"
-                      maxLength={4}
-                      placeholder="🏷️"
-                    />
-                    <input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleSaveEdit()}
-                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-900 focus:outline-none focus:border-rose-400 font-medium"
-                      placeholder="Název kategorie"
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSaveEdit}
-                      disabled={busy || !editName.trim()}
-                      className="h-8 px-3 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold disabled:opacity-50 transition-colors shadow-sm"
-                    >
-                      OK
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditId(null)}
-                      className="h-8 w-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <span className={`h-9 w-9 rounded-xl flex items-center justify-center text-lg shrink-0 border ${style.bgColor} ${style.borderColor}`}>
-                      {cat.icon}
-                    </span>
-                    <span className="flex-1 text-sm font-semibold text-slate-800 truncate">{cat.name}</span>
-                    {cat.isDefault && (
-                      <span className="text-[10px] text-slate-400 shrink-0 font-medium bg-slate-100 px-1.5 py-0.5 rounded-md">výchozí</span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => startEdit(cat)}
-                      className="h-7 w-7 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition-colors"
-                      title="Upravit kategorii"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                    {isConfirm ? (
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(cat.id)}
-                          disabled={busy}
-                          className="h-7 px-2 rounded-full bg-red-500 text-white text-[10px] font-bold"
-                        >
-                          Smazat
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDelete(null)}
-                          className="h-7 w-7 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDelete(cat.id)}
-                        className="h-7 w-7 rounded-full bg-slate-100 hover:bg-red-50 text-slate-400 hover:text-red-500 flex items-center justify-center transition-colors"
-                        title="Smazat kategorii"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            );
-          })}
-
-          {/* Add new */}
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2">
-            <input
-              value={newIcon}
-              onChange={(e) => setNewIcon(e.target.value)}
-              className="w-12 text-center text-xl rounded-xl border border-slate-200 bg-slate-50 py-1.5 focus:outline-none focus:border-rose-400"
-              maxLength={4}
-              placeholder="🏷️"
-            />
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-              className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-400"
-              placeholder="Nová kategorie…"
-            />
-            <button
-              type="button"
-              onClick={handleAdd}
-              disabled={busy || !newName.trim()}
-              className="h-8 px-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 text-white text-xs font-bold disabled:opacity-40 shrink-0 shadow-sm"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+// ─── Modal Form State ─────────────────────────────────────────────────────────
 
 
 const DEFAULT_FORM = {
@@ -482,12 +268,14 @@ function ServiceModal({
   onSubmit,
   isSubmitting,
   categories,
+  setCategories,
 }: {
   initial: Partial<FormState> & { id?: string };
   onClose: () => void;
   onSubmit: (data: FormState, id?: string) => Promise<void>;
   isSubmitting: boolean;
   categories: ServiceCategory[];
+  setCategories: React.Dispatch<React.SetStateAction<ServiceCategory[]>>;
 }) {
   const [form, setForm] = useState<FormState>(() => ({
     ...DEFAULT_FORM,
@@ -621,7 +409,14 @@ function ServiceModal({
           </button>
         </form>
       </div>
-      {showManage && <ManageCategoriesPanel cats={categories} onClose={() => setShowManage(false)} />}
+      {showManage && (
+        <ManageCategoriesModal
+          isOpen={showManage}
+          onClose={() => setShowManage(false)}
+          categories={categories}
+          setCategories={setCategories}
+        />
+      )}
     </div>
   );
 }
@@ -630,7 +425,8 @@ function ServiceModal({
 
 export default function ServicesPage() {
   const [entries, setEntries] = useState<ServiceEntry[]>([]);
-  const [categories, setCategories] = useState<ServiceCategory[]>([]);
+  const [categories, setCategories] = useState<ServiceCategory[]>(() => getCachedServiceCategories());
+  const [manageCategoriesOpen, setManageCategoriesOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isClient, setIsClient] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -649,40 +445,29 @@ export default function ServicesPage() {
       .catch((err) => console.warn("Chyba pri nacitani kurzu:", err));
   }, []);
 
-  // Firestore listener pro kategorie + seedovani pri prvnim spusteni
+  // Reaktivní Firestore listener pro kategorie + jednorázový seed
   useEffect(() => {
-    seedDefaultCategoriesIfEmpty().catch((e) => console.warn("seed:", e));
-    const unsub = subscribeToCategories(
+    initDefaultCategoriesIfNeeded().catch((e) => console.warn("category init:", e));
+    const unsub = subscribeToServiceCategories(
       (cats) => setCategories(cats),
-      (err) => console.error("categories listener:", err)
+      (err) => console.error("categories listener error:", err)
     );
     return () => unsub();
   }, []);
 
+  // Reaktivní onSnapshot posluchač pro služby
   useEffect(() => {
     setIsLoading(true);
-    const q = query(collection(db, "services"), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(q,
-      (snap) => {
-        const fetched: ServiceEntry[] = snap.docs.map((d) => {
-          const data = d.data();
-          return {
-            id: d.id,
-            name: data.name ?? "",
-            location: data.location ?? "",
-            category: data.category ?? "Jine",
-            items: Array.isArray(data.items) ? data.items : [],
-            price: Number(data.price) || 0,
-            currency: data.currency ?? "THB",
-            rating: Number(data.rating) || 5,
-            note: data.note ?? undefined,
-            createdAt: data.createdAt ?? new Date().toISOString(),
-          };
-        });
-        setEntries(fetched);
+    const unsub = subscribeToServices(
+      (services) => {
+        setEntries(services);
         setIsLoading(false);
       },
-      (err) => { console.error("services listener:", err); setIsLoading(false); }
+      (err) => {
+        console.error("Chyba při načítání služeb:", err);
+        showToast("Chyba při načítání služeb", "err");
+        setIsLoading(false);
+      }
     );
     return () => unsub();
   }, []);
@@ -696,7 +481,7 @@ export default function ServicesPage() {
     setIsSubmitting(true);
     try {
       const items = form.itemsRaw.split("\n").map((s) => s.trim()).filter(Boolean);
-      const payload = {
+      const payload: Omit<ServiceEntry, "id"> = {
         name: form.name.trim(),
         location: form.location.trim(),
         category: form.category,
@@ -704,22 +489,43 @@ export default function ServicesPage() {
         price: parseFloat(String(form.price)) || 0,
         currency: form.currency,
         rating: form.rating,
-        note: form.note.trim() || null,
+        note: form.note.trim() || undefined,
         createdAt: id
           ? (entries.find((e) => e.id === id)?.createdAt ?? new Date().toISOString())
           : new Date().toISOString(),
       };
-      if (id) { await updateDoc(doc(db, "services", id), payload); showToast("Zaznam upraven"); }
-      else { await addDoc(collection(db, "services"), payload); showToast("Zaznam pridan"); }
+      if (id) {
+        await updateService(id, payload);
+        showToast("Záznam upraven");
+      } else {
+        await addService(payload);
+        showToast("Záznam přidán");
+      }
       setModalOpen(false);
       setEditingEntry(null);
-    } catch (err) { console.error(err); showToast("Chyba pri ukladani", "err"); }
-    finally { setIsSubmitting(false); }
+    } catch (err) {
+      console.error(err);
+      showToast("Chyba při ukládání", "err");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
-    try { await deleteDoc(doc(db, "services", id)); showToast("Smazano"); }
-    catch { showToast("Chyba pri mazani", "err"); }
+    // 1. Okamžité optimistické odebrání z UI (nulové zpoždění, žádné probliknutí)
+    const previousEntries = entries;
+    setEntries((current) => current.filter((e) => e.id !== id));
+
+    try {
+      // 2. Trvalé smazání z Firestore s ochranou proti návratu z cache
+      await deleteService(id);
+      showToast("Smazáno");
+    } catch (err) {
+      console.error("Chyba při mazání služby:", err);
+      // V případě chyby vrátíme původní stav
+      setEntries(previousEntries);
+      showToast("Chyba při mazání", "err");
+    }
   };
 
   const openCreate = () => { setEditingEntry(null); setModalOpen(true); };
@@ -983,6 +789,16 @@ export default function ServicesPage() {
           onSubmit={handleSubmit}
           isSubmitting={isSubmitting}
           categories={categories}
+          setCategories={setCategories}
+        />
+      )}
+
+      {manageCategoriesOpen && (
+        <ManageCategoriesModal
+          isOpen={manageCategoriesOpen}
+          onClose={() => setManageCategoriesOpen(false)}
+          categories={categories}
+          setCategories={setCategories}
         />
       )}
     </div>
