@@ -9,11 +9,11 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Expense, Currency } from "@/lib/types";
+import { Expense, Currency, ExpenseCategory, getCategoryDefinition } from "@/lib/types";
 import {
   ReceiptText,
   BarChart3,
-  Map,
+  BookOpen,
   Search,
   Loader2,
   TrendingUp,
@@ -40,60 +40,15 @@ export interface CategoryStat {
   barColor: string;
 }
 
-function resolveStandardCategory(rawCategory: string): {
-  groupName: string;
-  icon: React.ComponentType<{ className?: string }>;
-  colorClass: string;
-  barColor: string;
-} {
-  const norm = (rawCategory || "").toLowerCase();
-
-  if (
-    norm.includes("gastro") ||
-    norm.includes("jídlo") ||
-    norm.includes("jidlo") ||
-    norm.includes("restaurant") ||
-    norm.includes("oběd") ||
-    norm.includes("večeře")
-  ) {
-    return { groupName: "Gastro", icon: UtensilsCrossed, colorClass: "bg-rose-100 text-rose-600", barColor: "bg-rose-500" };
-  }
-  if (
-    norm.includes("doprav") || norm.includes("transport") ||
-    norm.includes("vlak") || norm.includes("taxi") ||
-    norm.includes("grab") || norm.includes("autobus")
-  ) {
-    return { groupName: "Doprava", icon: Train, colorClass: "bg-orange-100 text-orange-600", barColor: "bg-orange-500" };
-  }
-  if (
-    norm.includes("ubytov") || norm.includes("accommodat") ||
-    norm.includes("hotel") || norm.includes("hostel") || norm.includes("airbnb")
-  ) {
-    return { groupName: "Ubytování", icon: Hotel, colorClass: "bg-blue-100 text-blue-600", barColor: "bg-blue-500" };
-  }
-  if (
-    norm.includes("bar") || norm.includes("pivo") ||
-    norm.includes("drink") || norm.includes("alkohol") || norm.includes("koktejl")
-  ) {
-    return { groupName: "Bar & Pivo", icon: Wine, colorClass: "bg-purple-100 text-purple-600", barColor: "bg-purple-500" };
-  }
-  if (
-    norm.includes("zážit") || norm.includes("zazit") ||
-    norm.includes("flight") || norm.includes("letenk") ||
-    norm.includes("let") || norm.includes("výlet") || norm.includes("vstup")
-  ) {
-    return { groupName: "Zážitky & Lety", icon: Plane, colorClass: "bg-sky-100 text-sky-600", barColor: "bg-sky-500" };
-  }
-  if (
-    norm.includes("coffee") || norm.includes("káv") || norm.includes("kav") ||
-    norm.includes("grocer") || norm.includes("nákup") ||
-    norm.includes("market") || norm.includes("7-eleven")
-  ) {
-    return { groupName: "Nákupy & Káva", icon: ShoppingCart, colorClass: "bg-emerald-100 text-emerald-600", barColor: "bg-emerald-500" };
-  }
-
-  return { groupName: "Ostatní", icon: Tag, colorClass: "bg-slate-100 text-slate-600", barColor: "bg-slate-500" };
-}
+const CATEGORY_ICONS: Record<ExpenseCategory, React.ComponentType<{ className?: string }>> = {
+  Gastro: UtensilsCrossed,
+  Doprava: Train,
+  Ubytování: Hotel,
+  Bar: Wine,
+  Zážitky: Plane,
+  Nákupy: ShoppingCart,
+  Různé: Tag,
+};
 
 export default function StatsView() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -170,12 +125,19 @@ export default function StatsView() {
     } = {};
 
     expenses.forEach((e) => {
-      const { groupName, icon, colorClass, barColor } = resolveStandardCategory(e.category);
-      if (!map[groupName]) {
-        map[groupName] = { totalCZK: 0, count: 0, icon, colorClass, barColor };
+      const def = getCategoryDefinition(e.category);
+      const icon = CATEGORY_ICONS[def.id] || Tag;
+      if (!map[def.label]) {
+        map[def.label] = {
+          totalCZK: 0,
+          count: 0,
+          icon,
+          colorClass: def.circleBg,
+          barColor: def.barColor,
+        };
       }
-      map[groupName].totalCZK += e.amountCZK || 0;
-      map[groupName].count += 1;
+      map[def.label].totalCZK += e.amountCZK || 0;
+      map[def.label].count += 1;
     });
 
     return Object.entries(map)
@@ -385,9 +347,9 @@ export default function StatsView() {
             <BarChart3 className="h-5 w-5 stroke-[2.3]" />
             <span className="text-[10px]">Stats</span>
           </Link>
-          <Link href="/map" className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-slate-600 transition-colors">
-            <Map className="h-5 w-5" />
-            <span className="text-[10px]">Map</span>
+          <Link href="/services" className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-slate-600 transition-colors">
+            <BookOpen className="h-5 w-5" />
+            <span className="text-[10px]">Služby</span>
           </Link>
           <Link href="/search" className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-rose-600 transition-colors">
             <Search className="h-5 w-5" />

@@ -9,7 +9,7 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Expense, Currency } from "@/lib/types";
+import { Expense, Currency, ExpenseCategory, getCategoryDefinition } from "@/lib/types";
 import { searchExpensesWithAI } from "@/app/actions/searchExpenses";
 import {
   Search,
@@ -18,7 +18,7 @@ import {
   X,
   ReceiptText,
   BarChart3,
-  Map,
+  BookOpen,
   Coins,
   UtensilsCrossed,
   Train,
@@ -53,113 +53,23 @@ function formatDate(iso: string): string {
   }
 }
 
-// Kategorizační metadata
+const CATEGORY_ICONS: Record<ExpenseCategory, React.ComponentType<{ className?: string }>> = {
+  Gastro: UtensilsCrossed,
+  Doprava: Train,
+  Ubytování: Hotel,
+  Bar: Wine,
+  Zážitky: Plane,
+  Nákupy: ShoppingCart,
+  Různé: Tag,
+};
+
+// Kategorizační metadata sjednocená přes lib/types
 function getCategoryInfo(rawCategory: string) {
-  const norm = (rawCategory || "").toLowerCase();
-
-  if (
-    norm.includes("gastro") ||
-    norm.includes("jídlo") ||
-    norm.includes("jidlo") ||
-    norm.includes("restaurant") ||
-    norm.includes("oběd") ||
-    norm.includes("večeře") ||
-    norm.includes("🍜")
-  ) {
-    return {
-      label: "Gastro & Jídlo",
-      icon: UtensilsCrossed,
-      colorClass: "bg-rose-100 text-rose-600",
-    };
-  }
-  if (
-    norm.includes("transport") ||
-    norm.includes("doprav") ||
-    norm.includes("vlak") ||
-    norm.includes("taxi") ||
-    norm.includes("grab") ||
-    norm.includes("autobus") ||
-    norm.includes("🚕")
-  ) {
-    return {
-      label: "Doprava",
-      icon: Train,
-      colorClass: "bg-sky-100 text-sky-600",
-    };
-  }
-  if (
-    norm.includes("accommodat") ||
-    norm.includes("ubytov") ||
-    norm.includes("hotel") ||
-    norm.includes("hostel") ||
-    norm.includes("airbnb") ||
-    norm.includes("🏨")
-  ) {
-    return {
-      label: "Ubytování",
-      icon: Hotel,
-      colorClass: "bg-indigo-100 text-indigo-600",
-    };
-  }
-  if (
-    norm.includes("bar") ||
-    norm.includes("pivo") ||
-    norm.includes("drink") ||
-    norm.includes("alkohol") ||
-    norm.includes("🍺")
-  ) {
-    return {
-      label: "Pivo & Bar",
-      icon: Wine,
-      colorClass: "bg-amber-100 text-amber-600",
-    };
-  }
-  if (
-    norm.includes("coffee") ||
-    norm.includes("káva") ||
-    norm.includes("kava") ||
-    norm.includes("cafe") ||
-    norm.includes("kavárna") ||
-    norm.includes("☕")
-  ) {
-    return {
-      label: "Káva & Kavárny",
-      icon: Coffee,
-      colorClass: "bg-orange-100 text-orange-700",
-    };
-  }
-  if (
-    norm.includes("grocery") ||
-    norm.includes("potravin") ||
-    norm.includes("nákup") ||
-    norm.includes("nakup") ||
-    norm.includes("7-eleven") ||
-    norm.includes("🛒")
-  ) {
-    return {
-      label: "Potraviny",
-      icon: ShoppingCart,
-      colorClass: "bg-emerald-100 text-emerald-600",
-    };
-  }
-  if (
-    norm.includes("flight") ||
-    norm.includes("letenk") ||
-    norm.includes("let") ||
-    norm.includes("aerolink") ||
-    norm.includes("✈️")
-  ) {
-    return {
-      label: "Letenky",
-      icon: Plane,
-      colorClass: "bg-violet-100 text-violet-600",
-    };
-  }
-
+  const def = getCategoryDefinition(rawCategory);
   return {
-    label: rawCategory || "Ostatní",
-    icon: Tag,
-    colorClass: "bg-slate-100 text-slate-600",
+    label: def.label,
+    icon: CATEGORY_ICONS[def.id] || Tag,
+    colorClass: def.circleBg,
   };
 }
 
@@ -612,11 +522,11 @@ export default function SearchPage() {
           </Link>
 
           <Link
-            href="/map"
+            href="/services"
             className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-slate-600 transition-colors"
           >
-            <Map className="h-5 w-5" />
-            <span className="text-[10px]">Map</span>
+            <BookOpen className="h-5 w-5" />
+            <span className="text-[10px]">Služby</span>
           </Link>
 
           <Link

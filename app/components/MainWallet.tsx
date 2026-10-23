@@ -13,7 +13,14 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Currency, Expense, CURRENCIES } from "@/lib/types";
+import {
+  Currency,
+  Expense,
+  CURRENCIES,
+  ExpenseCategory,
+  CATEGORY_LIST,
+  getCategoryDefinition,
+} from "@/lib/types";
 import {
   fetchExchangeRates,
   convertAmount,
@@ -39,87 +46,28 @@ import {
   CheckCircle2,
   ReceiptText,
   BarChart3,
-  Map,
+  BookOpen,
   Search,
-  MapPin,
   Pencil,
   Trash2,
 } from "lucide-react";
 
-// Seznam hlavních kategorií s ikonami a barvami
-export const CATEGORY_DEFINITIONS = [
-  {
-    id: "Transportation",
-    label: "Transportation",
-    icon: Train,
-    emoji: "🚆",
-    circleBg: "bg-orange-100 text-orange-600",
-    badgeBg: "bg-orange-50 text-orange-700 border-orange-200",
-  },
-  {
-    id: "Restaurants",
-    label: "Restaurants",
-    icon: UtensilsCrossed,
-    emoji: "🍽️",
-    circleBg: "bg-rose-100 text-rose-600",
-    badgeBg: "bg-rose-50 text-rose-700 border-rose-200",
-  },
-  {
-    id: "Drinks",
-    label: "Drinks",
-    icon: Wine,
-    emoji: "🍸",
-    circleBg: "bg-purple-100 text-purple-600",
-    badgeBg: "bg-purple-50 text-purple-700 border-purple-200",
-  },
-  {
-    id: "Coffee",
-    label: "Coffee",
-    icon: Coffee,
-    emoji: "☕",
-    circleBg: "bg-amber-100 text-amber-800",
-    badgeBg: "bg-amber-50 text-amber-800 border-amber-200",
-  },
-  {
-    id: "Groceries",
-    label: "Groceries",
-    icon: ShoppingCart,
-    emoji: "🛒",
-    circleBg: "bg-emerald-100 text-emerald-600",
-    badgeBg: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  },
-  {
-    id: "Accommodation",
-    label: "Accommodation",
-    icon: Hotel,
-    emoji: "🏨",
-    circleBg: "bg-blue-100 text-blue-600",
-    badgeBg: "bg-blue-50 text-blue-700 border-blue-200",
-  },
-  {
-    id: "Flights",
-    label: "Flights",
-    icon: Plane,
-    emoji: "✈️",
-    circleBg: "bg-sky-100 text-sky-600",
-    badgeBg: "bg-sky-50 text-sky-700 border-sky-200",
-  },
-  {
-    id: "Other",
-    label: "Other",
-    icon: Tag,
-    emoji: "🏷️",
-    circleBg: "bg-slate-100 text-slate-600",
-    badgeBg: "bg-slate-50 text-slate-700 border-slate-200",
-  },
-] as const;
+const CATEGORY_ICONS: Record<ExpenseCategory, React.ComponentType<{ className?: string }>> = {
+  Gastro: UtensilsCrossed,
+  Doprava: Train,
+  Ubytování: Hotel,
+  Bar: Wine,
+  Zážitky: Plane,
+  Nákupy: ShoppingCart,
+  Různé: Tag,
+};
 
 // Rychlé šablony (Quick Presets) pro okamžité zadávání nejčastějších výdajů
 export interface QuickPreset {
   id: string;
   emoji: string;
   label: string;
-  category: string;
+  category: ExpenseCategory;
   defaultNote: string;
   defaultMerchant?: string;
   defaultCurrency?: Currency;
@@ -130,124 +78,39 @@ export const QUICK_PRESETS: QuickPreset[] = [
     id: "food",
     emoji: "🍜",
     label: "Jídlo",
-    category: "Restaurants",
+    category: "Gastro",
     defaultNote: "Jídlo",
   },
   {
     id: "beer",
     emoji: "🍺",
     label: "Pivo",
-    category: "Drinks",
+    category: "Bar",
     defaultNote: "Pivo",
   },
   {
     id: "transport",
     emoji: "🛵",
     label: "Doprava",
-    category: "Transportation",
+    category: "Doprava",
     defaultNote: "Doprava",
   },
   {
     id: "coffee",
     emoji: "☕",
     label: "Káva",
-    category: "Coffee",
+    category: "Nákupy",
     defaultNote: "Káva",
   },
   {
     id: "seven_eleven",
     emoji: "🛒",
     label: "7-Eleven",
-    category: "Groceries",
+    category: "Nákupy",
     defaultNote: "7-Eleven",
     defaultMerchant: "7-Eleven",
   },
 ];
-
-// Inteligentní mapování libovolné kategorie (včetně starých českých s emoji)
-function getCategoryMeta(catName: string) {
-  const norm = (catName || "").toLowerCase();
-
-  if (
-    norm.includes("transport") ||
-    norm.includes("doprav") ||
-    norm.includes("vlak") ||
-    norm.includes("taxi") ||
-    norm.includes("grab") ||
-    norm.includes("autobus")
-  ) {
-    return CATEGORY_DEFINITIONS[0]; // Transportation
-  }
-  if (
-    norm.includes("restaurant") ||
-    norm.includes("gastro") ||
-    norm.includes("jídlo") ||
-    norm.includes("jidlo") ||
-    norm.includes("oběd") ||
-    norm.includes("večeře")
-  ) {
-    return CATEGORY_DEFINITIONS[1]; // Restaurants
-  }
-  if (
-    norm.includes("drink") ||
-    norm.includes("pivo") ||
-    norm.includes("bar") ||
-    norm.includes("alkohol") ||
-    norm.includes("koktejl")
-  ) {
-    return CATEGORY_DEFINITIONS[2]; // Drinks
-  }
-  if (
-    norm.includes("coffee") ||
-    norm.includes("káv") ||
-    norm.includes("kav") ||
-    norm.includes("cafe") ||
-    norm.includes("espresso")
-  ) {
-    return CATEGORY_DEFINITIONS[3]; // Coffee
-  }
-  if (
-    norm.includes("grocer") ||
-    norm.includes("nákup") ||
-    norm.includes("nakup") ||
-    norm.includes("market") ||
-    norm.includes("7-eleven") ||
-    norm.includes("obchod")
-  ) {
-    return CATEGORY_DEFINITIONS[4]; // Groceries
-  }
-  if (
-    norm.includes("accommodat") ||
-    norm.includes("ubytov") ||
-    norm.includes("hotel") ||
-    norm.includes("hostel") ||
-    norm.includes("airbnb")
-  ) {
-    return CATEGORY_DEFINITIONS[5]; // Accommodation
-  }
-  if (
-    norm.includes("flight") ||
-    norm.includes("letenk") ||
-    norm.includes("let") ||
-    norm.includes("aerolink")
-  ) {
-    return CATEGORY_DEFINITIONS[6]; // Flights
-  }
-
-  if (
-    norm.includes("other") ||
-    norm.includes("ostatn") ||
-    norm.includes("zážitk") ||
-    norm.includes("zazitk") ||
-    norm.includes("🏷") ||
-    norm.includes("🛒")
-  ) {
-    return CATEGORY_DEFINITIONS[7]; // Other / Ostatní
-  }
-
-  // Výchozí zástupná kategorie pro neznámé či nepropojitelné kategorie
-  return CATEGORY_DEFINITIONS[7];
-}
 
 export default function MainWallet() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -263,10 +126,6 @@ export default function MainWallet() {
   // GPS poloha – automaticky vyžádaná při mountu
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
 
-  // Aktivní záložka spodní navigace: Entries | Stats | Map | Search
-  const [activeTab, setActiveTab] = useState<"entries" | "stats" | "map" | "search">("entries");
-  const [searchQuery, setSearchQuery] = useState<string>("");
-
   // Stav pro modální okno formuláře (přidání i editace)
   const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
@@ -277,7 +136,7 @@ export default function MainWallet() {
   const [currency, setCurrency] = useState<Currency>("VND");
   const [note, setNote] = useState<string>("");
   const [merchant, setMerchant] = useState<string>("");
-  const [manualCategory, setManualCategory] = useState<string>("Restaurants");
+  const [manualCategory, setManualCategory] = useState<ExpenseCategory>("Gastro");
 
   // Stav pro aktuální měnové kurzy
   const [rates, setRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
@@ -465,32 +324,6 @@ export default function MainWallet() {
     }));
   }, [expenses, isClient]);
 
-  // Statistiky podle kategorií pro záložku Stats
-  const categoryStats = useMemo(() => {
-    const map: { [cat: string]: { totalCZK: number; count: number } } = {};
-    expenses.forEach((e) => {
-      const meta = getCategoryMeta(e.category);
-      if (!map[meta.label]) {
-        map[meta.label] = { totalCZK: 0, count: 0 };
-      }
-      map[meta.label].totalCZK += e.amountCZK || 0;
-      map[meta.label].count += 1;
-    });
-    return Object.entries(map).sort((a, b) => b[1].totalCZK - a[1].totalCZK);
-  }, [expenses]);
-
-  // Filtrované výdaje pro záložku Search
-  const searchResults = useMemo(() => {
-    if (!searchQuery.trim()) return expenses;
-    const q = searchQuery.toLowerCase();
-    return expenses.filter(
-      (e) =>
-        e.note.toLowerCase().includes(q) ||
-        (e.merchant && e.merchant.toLowerCase().includes(q)) ||
-        e.category.toLowerCase().includes(q)
-    );
-  }, [expenses, searchQuery]);
-
   // Živý přepočet pro náhled v ručním formuláři
   const numericAmount = parseFloat(amountOriginal);
   const previewAmountCZK =
@@ -510,7 +343,7 @@ export default function MainWallet() {
     setAmountOriginal("");
     setNote("");
     setMerchant("");
-    setManualCategory("Restaurants");
+    setManualCategory("Gastro");
     setIsManualModalOpen(true);
     setTimeout(() => {
       amountInputRef.current?.focus();
@@ -540,8 +373,8 @@ export default function MainWallet() {
     setCurrency(expense.currency);
     setNote(expense.note);
     setMerchant(expense.merchant || "");
-    const meta = getCategoryMeta(expense.category);
-    setManualCategory(meta.id);
+    const def = getCategoryDefinition(expense.category);
+    setManualCategory(def.id);
     setIsManualModalOpen(true);
     setTimeout(() => {
       amountInputRef.current?.focus();
@@ -731,68 +564,66 @@ export default function MainWallet() {
           </div>
         </div>
 
-        {/* OBSAH PODLE VYBRANÉ ZÁLOŽKY */}
-        {activeTab === "entries" && (
-          /* ČISTÝ FEED VÝDAJŮ SESKUPENÝCH PODLE DNŮ */
-          <div className="flex flex-col gap-4">
-            {isLoading ? (
-              <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 flex flex-col items-center justify-center text-slate-400">
-                <Loader2 className="h-6 w-6 animate-spin text-rose-500 mb-2" />
-                <p className="text-xs font-medium">Načítám výdaje...</p>
+        {/* ČISTÝ FEED VÝDAJŮ SESKUPENÝCH PODLE DNŮ */}
+        <div className="flex flex-col gap-4">
+          {isLoading ? (
+            <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 flex flex-col items-center justify-center text-slate-400">
+              <Loader2 className="h-6 w-6 animate-spin text-rose-500 mb-2" />
+              <p className="text-xs font-medium">Načítám výdaje...</p>
+            </div>
+          ) : groupedExpenses.length === 0 ? (
+            <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center text-slate-400">
+              <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
+                <Tag className="h-6 w-6" />
               </div>
-            ) : groupedExpenses.length === 0 ? (
-              <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center text-slate-400">
-                <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
-                  <Tag className="h-6 w-6" />
+              <p className="text-sm font-bold text-slate-700">Zatím žádné výdaje</p>
+              <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                Zatím nemáš žádné výdaje. Přidej první výdaj tlačítkem + nebo rychlou šablonou.
+              </p>
+            </div>
+          ) : (
+            groupedExpenses.map((group) => (
+              <section key={group.dateKey} className="flex flex-col gap-1.5">
+                {/* Hlavička dne: Datum vlevo ('Dnes • 11. října'), celková částka za den vpravo */}
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-xs font-bold text-slate-500 tracking-wide">
+                    {isClient ? group.label : group.dateKey}
+                  </span>
+                  <span className="text-xs font-black text-slate-800 tracking-tight">
+                    {formatNumber(group.totalCZK)} Kč
+                  </span>
                 </div>
-                <p className="text-sm font-bold text-slate-700">Zatím žádné výdaje</p>
-                <p className="text-xs text-slate-400 mt-1 max-w-xs">
-                  Použij spodní AI lištu pro rychlý záznam nebo klikni na + pro ruční zadání.
-                </p>
-              </div>
-            ) : (
-              groupedExpenses.map((group) => (
-                <section key={group.dateKey} className="flex flex-col gap-1.5">
-                  {/* Hlavička dne: Datum vlevo ('Dnes • 11. října'), celková částka za den vpravo */}
-                  <div className="flex items-center justify-between px-1">
-                    <span className="text-xs font-bold text-slate-500 tracking-wide">
-                      {isClient ? group.label : group.dateKey}
-                    </span>
-                    <span className="text-xs font-black text-slate-800 tracking-tight">
-                      {formatNumber(group.totalCZK)} Kč
-                    </span>
-                  </div>
 
-                  {/* Karta se záznamy daného dne */}
-                  <div className="bg-white rounded-2xl shadow-sm border border-slate-100 divide-y divide-slate-100 overflow-hidden">
-                    {group.items.map((expense) => {
-                      const meta = getCategoryMeta(expense.category);
-                      const IconComp = meta.icon;
+                {/* Karta se záznamy daného dne */}
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 divide-y divide-slate-100 overflow-hidden">
+                  {group.items.map((expense) => {
+                    const def = getCategoryDefinition(expense.category);
+                    const IconComp = CATEGORY_ICONS[def.id] || Tag;
 
-                      return (
-                        <div
-                          key={expense.id ?? `${expense.createdAt}-${expense.note}`}
-                          onClick={() => handleOpenEdit(expense)}
-                          className="p-3.5 flex items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors cursor-pointer group"
-                        >
-                          {/* Levá část: Kulatá ikona kategorie + popisy */}
-                          <div className="flex items-center gap-3 min-w-0 flex-1">
-                            {/* Kulatá ikona kategorie */}
-                            <div
-                              className={`h-10 w-10 rounded-full flex items-center justify-center shrink-0 ${meta.circleBg}`}
-                            >
-                              <IconComp className="h-5 w-5 stroke-[2.2]" />
-                            </div>
+                    return (
+                      <div
+                        key={expense.id ?? `${expense.createdAt}-${expense.note}`}
+                        onClick={() => handleOpenEdit(expense)}
+                        className="p-3.5 flex items-center justify-between gap-3 hover:bg-slate-50/70 transition-colors cursor-pointer group"
+                      >
+                        {/* Levá část: Kulatá ikona kategorie + popisy */}
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          {/* Kulatá ikona kategorie */}
+                          <div
+                            className={`h-10 w-10 rounded-full flex items-center justify-center shrink-0 ${def.circleBg}`}
+                          >
+                            <IconComp className="h-5 w-5 stroke-[2.2]" />
+                          </div>
 
-                            {/* Popis a detail */}
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-bold text-slate-900 truncate group-hover:text-rose-600 transition-colors">
-                                {expense.note}
-                              </p>
-                              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 truncate mt-0.5">
-                                <span className="font-medium text-slate-500">
-                                  {meta.label}
-                                </span>
+                          {/* Popis a detail */}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-slate-900 truncate group-hover:text-rose-600 transition-colors">
+                              {expense.note}
+                            </p>
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-400 truncate mt-0.5">
+                              <span className="font-medium text-slate-500">
+                                {def.label}
+                              </span>
                                 {expense.merchant && (
                                   <>
                                     <span>•</span>
@@ -856,121 +687,7 @@ export default function MainWallet() {
               ))
             )}
           </div>
-        )}
-
-        {/* ZÁLOŽKA STATS */}
-        {activeTab === "stats" && (
-          <div className="flex flex-col gap-3">
-            <h2 className="text-sm font-bold text-slate-700 px-1">Přehled podle kategorií</h2>
-            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col gap-3">
-              {categoryStats.length === 0 ? (
-                <p className="text-xs text-slate-400 text-center py-4">Žádná data pro statistiku</p>
-              ) : (
-                categoryStats.map(([categoryName, data]) => {
-                  const meta = getCategoryMeta(categoryName);
-                  const IconComp = meta.icon;
-                  const percent = totalCZK > 0 ? Math.round((data.totalCZK / totalCZK) * 100) : 0;
-                  return (
-                    <div key={categoryName} className="flex flex-col gap-1.5">
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2">
-                          <div className={`h-6 w-6 rounded-full flex items-center justify-center ${meta.circleBg}`}>
-                            <IconComp className="h-3.5 w-3.5" />
-                          </div>
-                          <span className="font-semibold text-slate-800">{categoryName}</span>
-                          <span className="text-slate-400 text-[11px]">({data.count}×)</span>
-                        </div>
-                        <div className="font-bold text-slate-900">
-                          {formatNumber(data.totalCZK)} Kč <span className="text-slate-400 font-normal">({percent}%)</span>
-                        </div>
-                      </div>
-                      <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
-                        <div
-                          className="h-full bg-rose-500 rounded-full transition-all duration-500"
-                          style={{ width: `${percent}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ZÁLOŽKA MAP */}
-        {activeTab === "map" && (
-          <div className="flex flex-col gap-3">
-            <h2 className="text-sm font-bold text-slate-700 px-1">Cestovní trasa & Lokace</h2>
-            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col gap-4">
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-150/70">
-                <MapPin className="h-5 w-5 text-rose-500 shrink-0" />
-                <div>
-                  <div className="text-xs font-bold text-slate-900">Trasa Jihovýchodní Asie</div>
-                  <div className="text-[11px] text-slate-500">🇹🇭 Thajsko ➔ 🇱🇦 Laos ➔ 🇻🇳 Vietnam</div>
-                </div>
-              </div>
-              <div className="flex flex-col divide-y divide-slate-100">
-                {expenses.filter(e => e.merchant).slice(0, 8).map((e) => (
-                  <div key={e.id} className="py-2.5 flex items-center justify-between text-xs">
-                    <span className="font-medium text-slate-700 truncate">{e.merchant}</span>
-                    <span className="font-bold text-slate-900 shrink-0">{formatNumber(e.amountCZK)} Kč</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ZÁLOŽKA SEARCH */}
-        {activeTab === "search" && (
-          <div className="flex flex-col gap-3">
-            <div className="relative">
-              <Search className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Hledat výdaj, podnik, kategorii..."
-                className="w-full bg-white rounded-2xl border border-slate-200 pl-10 pr-4 py-2.5 text-xs text-slate-900 shadow-xs focus:outline-none focus:border-rose-500"
-              />
-            </div>
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 divide-y divide-slate-100 overflow-hidden">
-              {searchResults.length === 0 ? (
-                <p className="text-xs text-slate-400 text-center py-6">Nenalezen žádný odpovídající výdaj</p>
-              ) : (
-                searchResults.map((exp) => (
-                  <div
-                    key={exp.id}
-                    onClick={() => handleOpenEdit(exp)}
-                    className="p-3 flex items-center justify-between text-xs hover:bg-slate-50 transition-colors cursor-pointer"
-                  >
-                    <div>
-                      <div className="font-bold text-slate-900">{exp.note}</div>
-                      <div className="text-[11px] text-slate-400">
-                        {exp.category} {exp.merchant ? `• ${exp.merchant}` : ""}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="font-bold text-slate-900">{formatNumber(exp.amountCZK)} Kč</div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(exp.id);
-                        }}
-                        className="p-1 rounded-md text-slate-400 hover:text-rose-600 transition-colors"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-      </main>
+        </main>
 
       {/* SPODNÍ FIXOVANÁ SEKCE (RYCHLÉ ŠABLONY + DOMINANTNÍ TLAČÍTKO NOVÝ VÝDAJ + SPODNÍ NAVIGACE, z-index 50) */}
       <div className="fixed bottom-0 left-0 right-0 z-50 pointer-events-none">
@@ -1007,19 +724,25 @@ export default function MainWallet() {
           </button>
         </div>
 
-        {/* Spodní elegantní navigace: Entries, Stats, Map, Search */}
+        {/* Spodní elegantní navigace: Entries, Služby, Stats, Search */}
         <nav className="bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-lg pointer-events-auto">
           <div className="max-w-md mx-auto sm:max-w-lg px-6 py-2 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => setActiveTab("entries")}
-              className={`flex flex-col items-center gap-0.5 transition-colors ${
-                activeTab === "entries" ? "text-rose-600 font-bold" : "text-slate-400 hover:text-slate-600"
-              }`}
+            <Link
+              href="/"
+              className="flex flex-col items-center gap-0.5 text-rose-600 font-bold transition-colors"
+              aria-current="page"
             >
               <ReceiptText className="h-5 w-5" />
               <span className="text-[10px]">Entries</span>
-            </button>
+            </Link>
+
+            <Link
+              href="/services"
+              className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <BookOpen className="h-5 w-5" />
+              <span className="text-[10px]">Služby</span>
+            </Link>
 
             <Link
               href="/stats"
@@ -1028,17 +751,6 @@ export default function MainWallet() {
               <BarChart3 className="h-5 w-5" />
               <span className="text-[10px]">Stats</span>
             </Link>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab("map")}
-              className={`flex flex-col items-center gap-0.5 transition-colors ${
-                activeTab === "map" ? "text-rose-600 font-bold" : "text-slate-400 hover:text-slate-600"
-              }`}
-            >
-              <Map className="h-5 w-5" />
-              <span className="text-[10px]">Map</span>
-            </button>
 
             <Link
               href="/search"
@@ -1116,8 +828,8 @@ export default function MainWallet() {
                   Kategorie
                 </label>
                 <div className="grid grid-cols-4 gap-2">
-                  {CATEGORY_DEFINITIONS.map((cat) => {
-                    const IconComp = cat.icon;
+                  {CATEGORY_LIST.map((cat) => {
+                    const IconComp = CATEGORY_ICONS[cat.id] || Tag;
                     const isSelected = manualCategory === cat.id;
 
                     return (
