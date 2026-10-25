@@ -489,7 +489,7 @@ export default function ServicesPage() {
         price: parseFloat(String(form.price)) || 0,
         currency: form.currency,
         rating: form.rating,
-        note: form.note.trim() || undefined,
+        note: form.note ? form.note.trim() : "",
         createdAt: id
           ? (entries.find((e) => e.id === id)?.createdAt ?? new Date().toISOString())
           : new Date().toISOString(),

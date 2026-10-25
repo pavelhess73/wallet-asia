@@ -90,12 +90,26 @@ export async function deleteService(id: string): Promise<void> {
 }
 
 /**
+ * Pomocná funkce pro sanitizaci objektu proti undefined hodnotám před odesláním do Firestore.
+ */
+function sanitizeData<T extends Record<string, any>>(data: T): Record<string, any> {
+  return Object.fromEntries(
+    Object.entries(data).filter(([_, v]) => v !== undefined)
+  );
+}
+
+/**
  * Přidá nový záznam služby do Firestore.
  */
 export async function addService(
   entry: Omit<ServiceEntry, "id">
 ): Promise<string> {
-  const docRef = await addDoc(collection(db, SERVICES_COL), entry);
+  const serviceData = {
+    ...entry,
+    note: entry.note ? entry.note.trim() : "",
+  };
+  const sanitized = sanitizeData(serviceData);
+  const docRef = await addDoc(collection(db, SERVICES_COL), sanitized);
   return docRef.id;
 }
 
@@ -106,7 +120,12 @@ export async function updateService(
   id: string,
   updates: Partial<Omit<ServiceEntry, "id">>
 ): Promise<void> {
-  await updateDoc(doc(db, SERVICES_COL, id), updates);
+  const cleanUpdates: Record<string, any> = { ...updates };
+  if ("note" in updates) {
+    cleanUpdates.note = updates.note ? updates.note.trim() : "";
+  }
+  const sanitized = sanitizeData(cleanUpdates);
+  await updateDoc(doc(db, SERVICES_COL, id), sanitized);
 }
 
 // ─── CATEGORIES: Forwarded from @/lib/serviceCategories ──────────────────────
