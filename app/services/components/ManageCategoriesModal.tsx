@@ -30,6 +30,7 @@ export default function ManageCategoriesModal({
   const [editIcon, setEditIcon] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -39,6 +40,7 @@ export default function ManageCategoriesModal({
     // Optimistické odstranění z UI
     setCategories((prev) => prev.filter((cat) => cat.id !== id));
     setConfirmDelete(null);
+    setErrorMsg(null);
 
     // Skutečné smazání z Firestore / LocalStorage
     try {
@@ -51,30 +53,33 @@ export default function ManageCategoriesModal({
   };
 
   // 2. Přidání nové kategorie
-  const handleAddCategory = async () => {
-    if (!newName.trim() || busy) return;
-    setBusy(true);
-
+  const handleAddCategory = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     const nameToSave = newName.trim();
+    if (!nameToSave || busy) return;
+
+    // Kontrola duplicity podle názvu (case-insensitive)
+    const exists = categories.some(
+      (c) => c.name.trim().toLowerCase() === nameToSave.toLowerCase()
+    );
+    if (exists) {
+      setErrorMsg(`Kategorie "${nameToSave}" již existuje.`);
+      return;
+    }
+
+    setBusy(true);
+    setErrorMsg(null);
     const iconToSave = newIcon.trim() || "🏷️";
 
     try {
-      const docId = await addServiceCategoryToDb(nameToSave, iconToSave, categories.length);
-      // Optimisticky doplníme novou kategorii do UI
-      setCategories((prev) => [
-        ...prev,
-        {
-          id: docId,
-          name: nameToSave,
-          icon: iconToSave,
-          isDefault: false,
-          order: prev.length,
-        },
-      ]);
+      await addServiceCategoryToDb(nameToSave, iconToSave, categories.length);
+      // Poznámka: Nepřidáváme ručně do setCategories – onSnapshot posluchač z Firestore dodá novou položku sám
       setNewName("");
       setNewIcon("");
-    } catch (err) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Chyba při přidávání kategorie";
       console.error("Chyba při přidávání kategorie:", err);
+      setErrorMsg(msg);
     } finally {
       setBusy(false);
     }
@@ -92,11 +97,21 @@ export default function ManageCategoriesModal({
   // 4. Uložení editace
   const handleSaveEdit = async () => {
     if (!editId || !editName.trim() || busy) return;
-    setBusy(true);
-
     const nameToSave = editName.trim();
     const iconToSave = editIcon.trim() || "🏷️";
     const currentEditId = editId;
+
+    // Kontrola duplicity názvu při přejmenování s jinou existující kategorií
+    const exists = categories.some(
+      (c) => c.id !== currentEditId && c.name.trim().toLowerCase() === nameToSave.toLowerCase()
+    );
+    if (exists) {
+      setErrorMsg(`Kategorie "${nameToSave}" již existuje.`);
+      return;
+    }
+
+    setBusy(true);
+    setErrorMsg(null);
 
     // Optimistická aktualizace v UI
     setCategories((prev) =>
@@ -112,8 +127,10 @@ export default function ManageCategoriesModal({
         { name: nameToSave, icon: iconToSave },
         editOldName
       );
-    } catch (err) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Chyba při úpravě kategorie";
       console.error("Chyba při úpravě kategorie:", err);
+      setErrorMsg(msg);
     } finally {
       setBusy(false);
     }
@@ -175,7 +192,12 @@ export default function ManageCategoriesModal({
                       <input
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleSaveEdit()}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleSaveEdit();
+                          }
+                        }}
                         className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-900 focus:outline-none focus:border-rose-400 font-medium"
                         placeholder="Název kategorie"
                         autoFocus
@@ -254,31 +276,44 @@ export default function ManageCategoriesModal({
             })
           )}
 
-          {/* Přidání nové kategorie */}
-          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2">
+          {errorMsg && (
+            <p className="text-xs text-rose-500 font-semibold px-2 py-1 bg-rose-50 rounded-lg text-center mt-2">
+              {errorMsg}
+            </p>
+          )}
+
+          {/* Přidání nové kategorie formulářem */}
+          <form
+            onSubmit={handleAddCategory}
+            className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2"
+          >
             <input
               value={newIcon}
               onChange={(e) => setNewIcon(e.target.value)}
-              className="w-12 text-center text-xl rounded-xl border border-slate-200 bg-slate-50 py-1.5 focus:outline-none focus:border-rose-400"
+              className="w-12 text-center text-xl rounded-xl border border-slate-200 bg-slate-50 py-1.5 focus:outline-none focus:border-rose-400 disabled:opacity-50"
               maxLength={4}
               placeholder="🏷️"
+              disabled={busy}
             />
             <input
               value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAddCategory()}
-              className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-400"
+              onChange={(e) => {
+                setNewName(e.target.value);
+                if (errorMsg) setErrorMsg(null);
+              }}
+              className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-400 disabled:opacity-50"
               placeholder="Nová kategorie…"
+              disabled={busy}
             />
             <button
-              type="button"
-              onClick={handleAddCategory}
+              type="submit"
               disabled={busy || !newName.trim()}
-              className="h-8 px-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 text-white text-xs font-bold disabled:opacity-40 shrink-0 shadow-sm"
+              className="h-8 px-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 text-white text-xs font-bold disabled:opacity-40 shrink-0 shadow-sm flex items-center justify-center transition-all hover:shadow"
+              title="Přidat kategorii"
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
-          </div>
+          </form>
         </div>
       </div>
     </div>

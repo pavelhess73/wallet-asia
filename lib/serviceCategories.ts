@@ -105,11 +105,12 @@ export function subscribeToServiceCategories(
   return onSnapshot(
     q,
     (snap) => {
+      const seenIds = new Set<string>();
       const seenNames = new Set<string>();
       const categories: ServiceCategory[] = [];
 
       for (const d of snap.docs) {
-        if (pendingDeletedCategoryIds.has(d.id)) {
+        if (pendingDeletedCategoryIds.has(d.id) || seenIds.has(d.id)) {
           continue;
         }
 
@@ -121,6 +122,7 @@ export function subscribeToServiceCategories(
         if (!rawName || seenNames.has(normKey)) {
           continue;
         }
+        seenIds.add(d.id);
         seenNames.add(normKey);
 
         categories.push({
@@ -188,6 +190,16 @@ export async function addServiceCategoryToDb(
 
   if (typeof window !== "undefined") {
     localStorage.setItem(LS_SEEDED_KEY, "true");
+  }
+
+  // Zamezení vytvoření duplikátu se stejným názvem v databázi
+  const q = query(collection(db, CATEGORIES_COLLECTION));
+  const snap = await getDocs(q);
+  const exists = snap.docs.some(
+    (d) => (d.data().name ?? "").toString().trim().toLowerCase() === trimmed.toLowerCase()
+  );
+  if (exists) {
+    throw new Error(`Kategorie "${trimmed}" již existuje`);
   }
 
   const docRef = await addDoc(collection(db, CATEGORIES_COLLECTION), {

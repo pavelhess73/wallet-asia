@@ -449,7 +449,13 @@ export default function ServicesPage() {
   useEffect(() => {
     initDefaultCategoriesIfNeeded().catch((e) => console.warn("category init:", e));
     const unsub = subscribeToServiceCategories(
-      (cats) => setCategories(cats),
+      (cats) => {
+        // Odstranění duplicit podle id před nastavením do stavu
+        const uniqueCategories = Array.from(
+          new Map(cats.map((item) => [item.id, item])).values()
+        );
+        setCategories(uniqueCategories);
+      },
       (err) => console.error("categories listener error:", err)
     );
     return () => unsub();
