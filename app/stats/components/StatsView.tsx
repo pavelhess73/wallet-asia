@@ -9,7 +9,14 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Expense, Currency, ExpenseCategory, getCategoryDefinition } from "@/lib/types";
+import { Expense, Currency, ExpenseCategory, getCategoryDefinition, ServiceEntry } from "@/lib/types";
+import {
+  fetchExchangeRates,
+  convertAmount,
+  DEFAULT_EXCHANGE_RATES,
+  ExchangeRates,
+} from "@/lib/rates";
+import { subscribeToServices } from "@/lib/servicesStore";
 import {
   ReceiptText,
   BarChart3,
@@ -28,6 +35,7 @@ import {
   ArrowLeft,
   CircleDollarSign,
   AlertCircle,
+  Wrench,
 } from "lucide-react";
 
 export interface CategoryStat {
@@ -50,11 +58,44 @@ const CATEGORY_ICONS: Record<ExpenseCategory, React.ComponentType<{ className?: 
   Různé: Tag,
 };
 
+// Paleta barev pro typy služeb (cyklická)
+const SERVICE_CAT_PALETTE = [
+  { colorClass: "bg-pink-100 text-pink-600",     barColor: "bg-pink-500"   },
+  { colorClass: "bg-blue-100 text-blue-600",     barColor: "bg-blue-500"   },
+  { colorClass: "bg-cyan-100 text-cyan-600",     barColor: "bg-cyan-500"   },
+  { colorClass: "bg-orange-100 text-orange-600", barColor: "bg-orange-500" },
+  { colorClass: "bg-sky-100 text-sky-600",       barColor: "bg-sky-500"    },
+  { colorClass: "bg-green-100 text-green-600",   barColor: "bg-green-500"  },
+  { colorClass: "bg-violet-100 text-violet-600", barColor: "bg-violet-500" },
+  { colorClass: "bg-amber-100 text-amber-600",   barColor: "bg-amber-500"  },
+  { colorClass: "bg-teal-100 text-teal-600",     barColor: "bg-teal-500"   },
+  { colorClass: "bg-slate-100 text-slate-600",   barColor: "bg-slate-500"  },
+];
+
 export default function StatsView() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [services, setServices] = useState<ServiceEntry[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [rates, setRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
 
+  // Load exchange rates
+  useEffect(() => {
+    fetchExchangeRates()
+      .then((r) => { if (r) setRates(r); })
+      .catch((err) => console.warn("Chyba pri nacitani kurzu:", err));
+  }, []);
+
+  // Load services via reactive listener
+  useEffect(() => {
+    const unsub = subscribeToServices(
+      (data) => setServices(data),
+      (err) => console.error("services listener (stats):", err)
+    );
+    return () => unsub();
+  }, []);
+
+  // Load expenses via onSnapshot
   useEffect(() => {
     setIsLoading(true);
     const q = query(collection(db, "expenses"), orderBy("createdAt", "desc"));
@@ -92,27 +133,39 @@ export default function StatsView() {
   const formatNumber = (val: number, maxDecimals = 0) =>
     new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: maxDecimals }).format(val);
 
-  const totalCZK = useMemo(
+  // ── Expenses total ──────────────────────────────────────────────────────────
+  const totalExpensesCZK = useMemo(
     () => expenses.reduce((acc, curr) => acc + (curr.amountCZK || 0), 0),
     [expenses]
   );
 
+  // ── Services total ──────────────────────────────────────────────────────────
+  const totalServicesCZK = useMemo(
+    () => services.reduce((acc, s) => acc + convertAmount(s.price, s.currency, "CZK", rates), 0),
+    [services, rates]
+  );
+
+  // ── Combined total ──────────────────────────────────────────────────────────
+  const totalCZK = useMemo(() => totalExpensesCZK + totalServicesCZK, [totalExpensesCZK, totalServicesCZK]);
+
+  // Unique active days – both collections
   const uniqueDaysCount = useMemo(() => {
     const daySet = new Set<string>();
-    expenses.forEach((e) => {
+    [...expenses, ...services].forEach((e) => {
       try {
         const d = new Date(e.createdAt);
         if (!isNaN(d.getTime())) daySet.add(d.toISOString().split("T")[0]);
       } catch { /* ignore */ }
     });
     return daySet.size;
-  }, [expenses]);
+  }, [expenses, services]);
 
   const averageDailyCZK = useMemo(
     () => (uniqueDaysCount === 0 ? 0 : Math.round(totalCZK / uniqueDaysCount)),
     [totalCZK, uniqueDaysCount]
   );
 
+  // ── Expense category stats ──────────────────────────────────────────────────
   const categoryStats: CategoryStat[] = useMemo(() => {
     const map: {
       [name: string]: {
@@ -144,23 +197,58 @@ export default function StatsView() {
       .map(([name, data]) => ({
         name,
         totalCZK: data.totalCZK,
-        percent: totalCZK > 0 ? Math.round((data.totalCZK / totalCZK) * 100) : 0,
+        percent: totalExpensesCZK > 0 ? Math.round((data.totalCZK / totalExpensesCZK) * 100) : 0,
         count: data.count,
         icon: data.icon,
         colorClass: data.colorClass,
         barColor: data.barColor,
       }))
       .sort((a, b) => b.totalCZK - a.totalCZK);
-  }, [expenses, totalCZK]);
+  }, [expenses, totalExpensesCZK]);
 
+  // ── Service category stats ──────────────────────────────────────────────────
+  const serviceCategoryStats = useMemo(() => {
+    const map: Record<string, { totalCZK: number; count: number; paletteIdx: number }> = {};
+    let catIndex = 0;
+    const catOrder: string[] = [];
+
+    services.forEach((s) => {
+      const czk = convertAmount(s.price, s.currency, "CZK", rates);
+      if (!map[s.category]) {
+        map[s.category] = { totalCZK: 0, count: 0, paletteIdx: catIndex % SERVICE_CAT_PALETTE.length };
+        catOrder.push(s.category);
+        catIndex++;
+      }
+      map[s.category].totalCZK += czk;
+      map[s.category].count += 1;
+    });
+
+    return catOrder
+      .map((name) => ({
+        name,
+        totalCZK: map[name].totalCZK,
+        percent: totalServicesCZK > 0 ? Math.round((map[name].totalCZK / totalServicesCZK) * 100) : 0,
+        count: map[name].count,
+        ...SERVICE_CAT_PALETTE[map[name].paletteIdx],
+      }))
+      .sort((a, b) => b.totalCZK - a.totalCZK);
+  }, [services, rates, totalServicesCZK]);
+
+  // ── Combined currency breakdown ─────────────────────────────────────────────
   const currencyTotals = useMemo(() => {
     const targetCurrencies: Currency[] = ["THB", "VND", "LAK", "USD", "EUR", "CZK"];
     const sums: Record<Currency, number> = { THB: 0, VND: 0, LAK: 0, USD: 0, EUR: 0, CZK: 0 };
+    // Expenses – original amounts
     expenses.forEach((e) => {
       if (sums[e.currency] !== undefined) sums[e.currency] += e.amountOriginal || 0;
     });
+    // Services – original amounts
+    services.forEach((s) => {
+      const cur = s.currency as Currency;
+      if (sums[cur] !== undefined) sums[cur] += s.price || 0;
+    });
     return targetCurrencies.map((curr) => ({ currency: curr, total: sums[curr] }));
-  }, [expenses]);
+  }, [expenses, services]);
 
   return (
     <div className="min-h-screen bg-[#F8F6F4] text-slate-800 antialiased selection:bg-rose-500/20 pb-28">
@@ -196,7 +284,7 @@ export default function StatsView() {
           </div>
         )}
 
-        {/* SOUHRNNÉ KARTY */}
+        {/* SOUHRNNÉ KARTY – kombinované výdaje + služby */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-2">
@@ -211,8 +299,13 @@ export default function StatsView() {
                 <span className="text-xs font-semibold text-slate-400">Kč</span>
               </div>
               <p className="text-[11px] text-slate-400 mt-0.5 font-medium">
-                Celkem {expenses.length} položek
+                {expenses.length} výdajů + {services.length} služeb
               </p>
+              {totalServicesCZK > 0 && (
+                <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                  Z toho služby: {formatNumber(totalServicesCZK)} Kč
+                </p>
+              )}
             </div>
           </div>
 
@@ -292,14 +385,67 @@ export default function StatsView() {
           )}
         </section>
 
-        {/* ROZPAD PODLE MĚN */}
+        {/* SLUŽBY PODLE TYPŮ */}
+        {services.length > 0 && (
+          <section className="flex flex-col gap-2.5">
+            <div className="flex items-center justify-between px-1">
+              <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <Wrench className="h-3.5 w-3.5 text-slate-400" />
+                <span>Služby podle typů</span>
+              </h2>
+              <span className="text-[11px] text-slate-400">
+                {services.length} záznamů · {formatNumber(totalServicesCZK)} Kč
+              </span>
+            </div>
+
+            {serviceCategoryStats.length === 0 ? (
+              <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 text-center text-slate-400 text-xs">
+                Žádné záznamy služeb
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-100 flex flex-col gap-4">
+                {serviceCategoryStats.map((item) => (
+                  <div key={item.name} className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between text-xs sm:text-sm">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${item.colorClass}`}>
+                          <Wrench className="h-4 w-4 stroke-[2]" />
+                        </div>
+                        <div className="truncate">
+                          <span className="font-bold text-slate-900">{item.name}</span>
+                          <span className="text-slate-400 text-[11px] ml-1.5">({item.count}×)</span>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="font-black text-slate-900 tracking-tight">
+                          {formatNumber(item.totalCZK)} Kč
+                        </span>
+                        <span className="text-slate-400 font-semibold text-xs ml-1.5">
+                          {item.percent}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                      <div
+                        className={`h-full ${item.barColor} rounded-full transition-all duration-700 ease-out`}
+                        style={{ width: `${Math.max(item.percent, 3)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ROZPAD PODLE MĚN – výdaje + služby */}
         <section className="flex flex-col gap-2.5">
           <div className="flex items-center justify-between px-1">
             <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
               <CircleDollarSign className="h-3.5 w-3.5 text-slate-400" />
               <span>Rozpad podle původních měn</span>
             </h2>
-            <span className="text-[11px] text-slate-400">V originální měně</span>
+            <span className="text-[11px] text-slate-400">Výdaje + služby</span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
