@@ -50,7 +50,14 @@ import {
   Search,
   Pencil,
   Trash2,
+  Calculator,
 } from "lucide-react";
+import dynamic from "next/dynamic";
+
+const CurrencyCalculatorModal = dynamic(
+  () => import("@/app/components/CurrencyCalculatorModal"),
+  { ssr: false }
+);
 
 const CATEGORY_ICONS: Record<ExpenseCategory, React.ComponentType<{ className?: string }>> = {
   Gastro: UtensilsCrossed,
@@ -128,6 +135,7 @@ export default function MainWallet() {
 
   // Stav pro modální okno formuláře (přidání i editace)
   const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
+  const [calcOpen, setCalcOpen] = useState<boolean>(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const amountInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -491,10 +499,21 @@ export default function MainWallet() {
               <span>🌏</span>
               <span>Cestovní Peněženka</span>
             </span>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-semibold border border-emerald-200/60">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Live
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCalcOpen(true)}
+                className="h-7 w-7 rounded-full bg-slate-100 hover:bg-rose-50 hover:text-rose-500 text-slate-500 flex items-center justify-center transition-colors"
+                title="Kalkulačka měn"
+                aria-label="Otevřít kalkulačku měn"
+              >
+                <Calculator className="h-3.5 w-3.5" />
+              </button>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-semibold border border-emerald-200/60">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Live
+              </span>
+            </div>
           </div>
 
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">
@@ -985,6 +1004,14 @@ export default function MainWallet() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Modální okno kalkulačky měn */}
+      {calcOpen && (
+        <CurrencyCalculatorModal
+          defaultFrom={currency}
+          onClose={() => setCalcOpen(false)}
+        />
       )}
     </div>
   );

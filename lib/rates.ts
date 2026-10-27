@@ -3,6 +3,7 @@
  */
 
 export const CACHE_STORAGE_KEY = "cached_exchange_rates";
+export const CACHE_STORAGE_KEY_DATE = "cached_exchange_rates_date";
 
 export const SUPPORTED_CURRENCIES = [
   "THB",
@@ -73,6 +74,10 @@ export async function getExchangeRates(): Promise<ExchangeRates> {
             window.localStorage.setItem(
               CACHE_STORAGE_KEY,
               JSON.stringify(rates)
+            );
+            window.localStorage.setItem(
+              CACHE_STORAGE_KEY_DATE,
+              new Date().toISOString()
             );
           } catch (storageError) {
             console.warn("Nepodařilo se uložit kurzy do localStorage:", storageError);
