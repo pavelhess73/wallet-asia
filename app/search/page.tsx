@@ -10,27 +10,22 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Expense, Currency, ExpenseCategory, getCategoryDefinition } from "@/lib/types";
-import { searchExpensesWithAI } from "@/app/actions/searchExpenses";
 import {
   Search,
-  Sparkles,
   Loader2,
   X,
   ReceiptText,
   BarChart3,
   BookOpen,
-  Coins,
   UtensilsCrossed,
   Train,
   Hotel,
   Wine,
   Plane,
   ShoppingCart,
-  Coffee,
   Tag,
   ArrowLeft,
   RotateCcw,
-  AlertCircle,
   Filter,
 } from "lucide-react";
 
@@ -88,12 +83,6 @@ export default function SearchPage() {
   // Rychlý filtr
   const [selectedQuickFilter, setSelectedQuickFilter] = useState<string | null>(null);
 
-  // AI vyhledávání
-  const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
-  const [isAiMode, setIsAiMode] = useState<boolean>(false);
-  const [aiMatchedIds, setAiMatchedIds] = useState<string[] | null>(null);
-  const [aiError, setAiError] = useState<string | null>(null);
-
   // 1. Živá data z Firestore přes onSnapshot
   useEffect(() => {
     setIsLoading(true);
@@ -129,49 +118,13 @@ export default function SearchPage() {
     return () => unsubscribe();
   }, []);
 
-  // Obsluha AI vyhledávání
-  const handleAiSearch = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-
-    const cleanQuery = queryText.trim();
-    if (!cleanQuery) return;
-
-    setIsAiLoading(true);
-    setAiError(null);
-
-    try {
-      const ids = await searchExpensesWithAI(cleanQuery, expenses);
-      setAiMatchedIds(ids);
-      setIsAiMode(true);
-    } catch (err) {
-      console.error("AI vyhledávání selhalo:", err);
-      setAiError(
-        err instanceof Error ? err.message : "Chyba při komunikaci s Gemini AI"
-      );
-    } finally {
-      setIsAiLoading(false);
-    }
-  };
-
-  // Reakce na změnu v textovém poli (klasický filtr)
+  // Reakce na změnu v textovém poli
   const handleInputChange = (value: string) => {
     setQueryText(value);
-    // Pokud uživatel upraví text, vypneme předchozí AI mód, aby okamžitě fungoval živý textový filtr
-    if (isAiMode) {
-      setIsAiMode(false);
-      setAiMatchedIds(null);
-    }
-    if (aiError) {
-      setAiError(null);
-    }
   };
 
   // Přepnutí rychlého filtru
   const toggleQuickFilter = (filterId: string) => {
-    if (isAiMode) {
-      setIsAiMode(false);
-      setAiMatchedIds(null);
-    }
     setSelectedQuickFilter((prev) => (prev === filterId ? null : filterId));
   };
 
@@ -179,20 +132,10 @@ export default function SearchPage() {
   const handleClearSearch = () => {
     setQueryText("");
     setSelectedQuickFilter(null);
-    setIsAiMode(false);
-    setAiMatchedIds(null);
-    setAiError(null);
   };
 
-  // Výpočet filtrovaných výdajů (duální vyhledávání: AI filtr vs. Klasický filtr)
+  // Výpočet filtrovaných výdajů (okamžitá reakce na psaní + rychlé filtry)
   const filteredExpenses = useMemo(() => {
-    // 1. AI MÓD – zobrazí přesně položky rozpoznané Gemini
-    if (isAiMode && aiMatchedIds !== null) {
-      const idSet = new Set(aiMatchedIds);
-      return expenses.filter((e) => e.id && idSet.has(e.id));
-    }
-
-    // 2. KLASICKÝ FILTR – okamžitá reakce na psaní + rychlé filtry
     return expenses.filter((e) => {
       // Filtr podle rychlého filtru
       if (selectedQuickFilter) {
@@ -232,7 +175,7 @@ export default function SearchPage() {
         }
       }
 
-      // Klasický textový filtr podle poznámky a kategorie
+      // Textový filtr podle poznámky, kategorie a místa
       if (queryText.trim()) {
         const q = queryText.trim().toLowerCase();
         const matchNote = (e.note || "").toLowerCase().includes(q);
@@ -243,7 +186,7 @@ export default function SearchPage() {
 
       return true;
     });
-  }, [expenses, isAiMode, aiMatchedIds, selectedQuickFilter, queryText]);
+  }, [expenses, selectedQuickFilter, queryText]);
 
   // Celkový součet vyhledaných výdajů v CZK
   const totalCZK = useMemo(() => {
@@ -265,8 +208,8 @@ export default function SearchPage() {
             </Link>
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-rose-500 flex items-center gap-1">
-                <Sparkles className="h-3 w-3" />
-                <span>Chytré vyhledávání</span>
+                <Search className="h-3 w-3" />
+                <span>Vyhledávání</span>
               </span>
               <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
                 Hledat výdaje
@@ -274,7 +217,7 @@ export default function SearchPage() {
             </div>
           </div>
 
-          {(queryText || selectedQuickFilter || isAiMode) && (
+          {(queryText || selectedQuickFilter) && (
             <button
               type="button"
               onClick={handleClearSearch}
@@ -287,7 +230,7 @@ export default function SearchPage() {
         </header>
 
         {/* VYHLEDÁVACÍ FORMULÁŘ */}
-        <form onSubmit={handleAiSearch} className="flex flex-col gap-2.5">
+        <form onSubmit={(e) => e.preventDefault()} className="flex flex-col gap-2.5">
           <div className="relative flex items-center">
             <Search className="h-4 w-4 absolute left-3.5 text-slate-400 pointer-events-none" />
             <input
@@ -307,31 +250,6 @@ export default function SearchPage() {
                 <X className="h-4 w-4" />
               </button>
             )}
-          </div>
-
-          {/* Tlačítko 'Hledat přes AI' */}
-          <div className="flex items-center gap-2">
-            <button
-              type="submit"
-              disabled={isAiLoading || !queryText.trim()}
-              className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all ${
-                isAiLoading || !queryText.trim()
-                  ? "bg-slate-200 text-slate-400 cursor-not-allowed"
-                  : "bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white shadow-rose-500/25 active:scale-[0.98] cursor-pointer"
-              }`}
-            >
-              {isAiLoading ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Gemini analyzuje...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span>Hledat přes AI (Gemini 2.5 Flash)</span>
-                </>
-              )}
-            </button>
           </div>
 
           {/* RYCHLÉ FILTRY */}
@@ -360,14 +278,6 @@ export default function SearchPage() {
           </div>
         </form>
 
-        {/* CHYBOVÁ HLÁŠKA AI */}
-        {aiError && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-600 flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{aiError}</span>
-          </div>
-        )}
-
         {/* SOUHRNNÝ PANEL S INDIKACÍ VÝSLEDKŮ A CELKOVÝM SOUČTEM */}
         <div className="bg-white rounded-2xl p-4 shadow-xs border border-slate-100 flex items-center justify-between gap-3">
           <div className="flex flex-col">
@@ -382,12 +292,7 @@ export default function SearchPage() {
                   : "výdajů"}
               </span>
             </div>
-            {isAiMode ? (
-              <span className="text-[11px] text-rose-600 font-semibold flex items-center gap-1 mt-0.5">
-                <Sparkles className="h-3 w-3" />
-                <span>AI sémantický filtr aktivní</span>
-              </span>
-            ) : queryText.trim() ? (
+            {queryText.trim() ? (
               <span className="text-[11px] text-slate-400 mt-0.5">
                 Textový filtr: &quot;{queryText.trim()}&quot;
               </span>
@@ -430,12 +335,10 @@ export default function SearchPage() {
                 Žádné odpovídající výdaje
               </p>
               <p className="text-xs text-slate-400 mt-0.5 max-w-xs mx-auto">
-                {isAiMode
-                  ? "Model Gemini nenašel žádný výdaj odpovídající vašemu dotazu."
-                  : "Zkuste změnit hledaný výraz nebo zvolit jiný rychlý filtr."}
+                Zkuste změnit hledaný výraz nebo zvolit jiný rychlý filtr.
               </p>
             </div>
-            {(queryText || selectedQuickFilter || isAiMode) && (
+            {(queryText || selectedQuickFilter) && (
               <button
                 type="button"
                 onClick={handleClearSearch}
