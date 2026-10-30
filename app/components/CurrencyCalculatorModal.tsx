@@ -4,10 +4,14 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   fetchExchangeRates,
   convertAmount,
+  convertToCZK,
   DEFAULT_EXCHANGE_RATES,
   ExchangeRates,
-  CACHE_STORAGE_KEY,
-} from "@/lib/rates";
+  formatRatesAge,
+  saveRatesDate,
+  getCachedRatesDate,
+} from "@/lib/currency";
+import { formatNumber } from "@/lib/formatters";
 import { Currency } from "@/lib/types";
 import { X, RefreshCw, ArrowLeftRight, Loader2 } from "lucide-react";
 
@@ -43,59 +47,12 @@ function formatQuick(amount: number, currency: Currency): string {
   return String(amount);
 }
 
-// Formátování výsledku s tisícovými oddělovači
-function formatResult(val: number, currency: Currency): string {
-  const decimals = currency === "USD" || currency === "EUR" ? 2 : 0;
-  return new Intl.NumberFormat("cs-CZ", {
-    maximumFractionDigits: decimals,
-    minimumFractionDigits: 0,
-  }).format(val);
-}
-
 // Formátování směnného kurzu (zobrazovaná přesnost)
 function formatRate(val: number): string {
-  if (val >= 1000) return new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 0 }).format(val);
-  if (val >= 10)   return new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 2 }).format(val);
-  if (val >= 1)    return new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 3 }).format(val);
-  return new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 4 }).format(val);
-}
-
-// Načte datum z localStorage (je uloženo spolu s kurzy)
-const RATES_DATE_KEY = "cached_exchange_rates_date";
-
-function saveRatesDate() {
-  try {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(RATES_DATE_KEY, new Date().toISOString());
-    }
-  } catch { /* ignore */ }
-}
-
-function loadRatesDate(): string | null {
-  try {
-    if (typeof window !== "undefined") {
-      return window.localStorage.getItem(RATES_DATE_KEY);
-    }
-  } catch { /* ignore */ }
-  return null;
-}
-
-// Formátuje datum aktualizace kurzů
-function formatRatesAge(iso: string | null): string {
-  if (!iso) return "kurzy z offline cache";
-  try {
-    const d = new Date(iso);
-    const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    const diffMin = Math.round(diffMs / 60000);
-    if (diffMin < 2)  return "Kurzy právě aktualizovány";
-    if (diffMin < 60) return `Kurzy aktualizovány před ${diffMin} min`;
-    const diffH = Math.round(diffMin / 60);
-    if (diffH < 24)  return `Kurzy aktualizovány dnes v ${d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}`;
-    return `Kurzy ze dne ${d.toLocaleDateString("cs-CZ", { day: "numeric", month: "short" })}`;
-  } catch {
-    return "kurzy z cache";
-  }
+  if (val >= 1000) return formatNumber(val, 0);
+  if (val >= 10) return formatNumber(val, 2);
+  if (val >= 1) return formatNumber(val, 3);
+  return formatNumber(val, 4);
 }
 
 // ─── Komponenta ──────────────────────────────────────────────────────────────
@@ -125,8 +82,7 @@ export default function CurrencyCalculatorModal({ defaultFrom = "THB", onClose }
         saveRatesDate();
         setRatesDate(new Date().toISOString());
       } else {
-        const cached = loadRatesDate();
-        // Pokud nejsou v localStorage datum, ale fetch proběhl – uložíme
+        const cached = getCachedRatesDate();
         if (!cached) {
           saveRatesDate();
           setRatesDate(new Date().toISOString());
@@ -136,24 +92,29 @@ export default function CurrencyCalculatorModal({ defaultFrom = "THB", onClose }
       }
     } catch {
       setIsOffline(true);
-      setRatesDate(loadRatesDate());
+      setRatesDate(getCachedRatesDate());
     } finally {
       setIsRefreshing(false);
     }
   }, []);
 
-  useEffect(() => { loadRates(false); }, [loadRates]);
+  useEffect(() => {
+    loadRates(false);
+  }, [loadRates]);
 
-  // Výsledek přepočtu
+  // Výsledek přepočtu s použitím convertToCZK / convertAmount
   const result = useMemo(() => {
     const num = parseFloat(amount.replace(",", "."));
     if (!amount || isNaN(num) || num <= 0) return null;
+    if (to === "CZK") {
+      return convertToCZK(num, from, rates);
+    }
     return convertAmount(num, from, to, rates);
   }, [amount, from, to, rates]);
 
   // Zobrazovaný kurz
   const displayRate = useMemo(
-    () => convertAmount(1, from, to, rates),
+    () => (to === "CZK" ? convertToCZK(1, from, rates) : convertAmount(1, from, to, rates)),
     [from, to, rates]
   );
 
@@ -180,7 +141,9 @@ export default function CurrencyCalculatorModal({ defaultFrom = "THB", onClose }
   };
 
   const fromInfo = CURRENCIES.find((c) => c.code === from)!;
-  const toInfo   = CURRENCIES.find((c) => c.code === to)!;
+  const toInfo = CURRENCIES.find((c) => c.code === to)!;
+
+  const resultDecimals = to === "USD" || to === "EUR" ? 2 : 0;
 
   return (
     <div
@@ -198,13 +161,25 @@ export default function CurrencyCalculatorModal({ defaultFrom = "THB", onClose }
               <span className="text-xl">🧮</span>
               Kalkulačka měn
             </h2>
-            <p className={`text-[10px] mt-0.5 font-medium flex items-center gap-1.5 ${isOffline ? "text-amber-500" : "text-slate-400"}`}>
-              {isRefreshing
-                ? <><Loader2 className="h-3 w-3 animate-spin" /> Aktualizuji kurzy…</>
-                : isOffline
-                  ? <><span>⚠️</span> Offline – {formatRatesAge(ratesDate)}</>
-                  : <><span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />{formatRatesAge(ratesDate)}</>
-              }
+            <p
+              className={`text-[10px] mt-0.5 font-medium flex items-center gap-1.5 ${
+                isOffline ? "text-amber-500" : "text-slate-400"
+              }`}
+            >
+              {isRefreshing ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" /> Aktualizuji kurzy…
+                </>
+              ) : isOffline ? (
+                <>
+                  <span>⚠️</span> Offline – {formatRatesAge(ratesDate)}
+                </>
+              ) : (
+                <>
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                  {formatRatesAge(ratesDate)}
+                </>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-1.5">
@@ -243,7 +218,6 @@ export default function CurrencyCalculatorModal({ defaultFrom = "THB", onClose }
                 placeholder="0"
                 value={amount}
                 onChange={(e) => {
-                  // Povolíme pouze čísla, tečku a čárku
                   const v = e.target.value.replace(/[^0-9.,]/g, "");
                   setAmount(v);
                 }}
@@ -331,11 +305,13 @@ export default function CurrencyCalculatorModal({ defaultFrom = "THB", onClose }
           </div>
 
           {/* ── Výsledek ── */}
-          <div className={`rounded-2xl p-4 border-2 transition-colors ${
-            result !== null
-              ? "bg-gradient-to-br from-rose-50 to-pink-50 border-rose-200"
-              : "bg-slate-50 border-slate-200"
-          }`}>
+          <div
+            className={`rounded-2xl p-4 border-2 transition-colors ${
+              result !== null
+                ? "bg-gradient-to-br from-rose-50 to-pink-50 border-rose-200"
+                : "bg-slate-50 border-slate-200"
+            }`}
+          >
             {result !== null ? (
               <>
                 <div className="flex items-baseline gap-2 flex-wrap">
@@ -344,7 +320,7 @@ export default function CurrencyCalculatorModal({ defaultFrom = "THB", onClose }
                   </span>
                   <span className="text-slate-400">=</span>
                   <span className="text-3xl font-black text-slate-900 tracking-tight">
-                    {formatResult(result, to)}
+                    {formatNumber(result, resultDecimals)}
                     <span className="text-lg font-bold text-slate-500 ml-1.5">
                       {toInfo.symbol}
                     </span>
@@ -353,7 +329,11 @@ export default function CurrencyCalculatorModal({ defaultFrom = "THB", onClose }
                 <p className="text-[11px] text-slate-400 mt-1 font-medium">
                   1 {from} = {formatRate(displayRate)} {to}
                   {"  ·  "}
-                  1 {to} = {formatRate(convertAmount(1, to, from, rates))} {from}
+                  1 {to} ={" "}
+                  {formatRate(
+                    from === "CZK" ? convertToCZK(1, to, rates) : convertAmount(1, to, from, rates)
+                  )}{" "}
+                  {from}
                 </p>
               </>
             ) : (

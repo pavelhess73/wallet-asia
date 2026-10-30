@@ -1,5 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import {
+  Firestore,
   initializeFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
@@ -18,7 +19,7 @@ const firebaseConfig = {
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 // Nastavení offline persistence přes IndexedDB na klientovi (persistentMultipleTabManager)
-let firestoreDb;
+let firestoreDb: Firestore;
 if (typeof window !== "undefined") {
   try {
     firestoreDb = initializeFirestore(app, {
@@ -33,4 +34,4 @@ if (typeof window !== "undefined") {
   firestoreDb = getFirestore(app);
 }
 
-export const db = firestoreDb;
+export const db: Firestore = firestoreDb;

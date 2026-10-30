@@ -1,6 +1,7 @@
 import { Firestore, doc, setDoc, addDoc, collection } from "firebase/firestore";
 import { db as defaultDb } from "@/lib/firebase";
 import { Expense, ServiceEntry } from "@/lib/types";
+import { convertToCZK } from "@/lib/currency";
 
 /**
  * Pomocná funkce pro formátování data do řetězce YYYY-MM-DD
@@ -39,10 +40,10 @@ function escapeCSVValue(val: string | number | undefined | null): string {
 }
 
 /**
- * Sanitizace objektu pro Firestore proti hodnotám undefined
+ * Sanitizace objektu pro Firestore proti hodnotám undefined (bez použití any)
  */
-function sanitizeFirestoreData<T extends Record<string, any>>(obj: T): Record<string, any> {
-  const clean: Record<string, any> = {};
+function sanitizeFirestoreData<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
+  const clean: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
     if (key === "id") continue; // ID dokumentu je v docRef, ne v samotném těle
     if (value !== undefined) {
@@ -87,7 +88,17 @@ export function exportData(expenses: Expense[], services: ServiceEntry[]): void 
  * Exportuje sjednocenou tabulku výdajů a služeb do CSV souboru (s UTF-8 BOM pro Excel)
  */
 export function exportCSV(expenses: Expense[], services: ServiceEntry[]): void {
-  const header = ["Typ", "Datum", "Název/Popis", "Kategorie", "Částka", "Měna", "Způsob platby", "Poznámka"];
+  const header = [
+    "Typ",
+    "Datum",
+    "Název/Popis",
+    "Kategorie",
+    "Částka",
+    "Měna",
+    "Částka v CZK",
+    "Způsob platby",
+    "Poznámka",
+  ];
   const rows: string[][] = [];
 
   // 1. Výdaje
@@ -95,6 +106,8 @@ export function exportCSV(expenses: Expense[], services: ServiceEntry[]): void {
     const formattedDate = exp.createdAt ? exp.createdAt.split("T")[0] : "";
     const title = exp.merchant ? `${exp.note} (${exp.merchant})` : exp.note;
     const payment = exp.paymentMethod === "card" ? "Karta" : "Hotovost";
+    const czk = exp.amountCZK || convertToCZK(exp.amountOriginal, exp.currency);
+
     rows.push([
       "Výdaj",
       formattedDate,
@@ -102,6 +115,7 @@ export function exportCSV(expenses: Expense[], services: ServiceEntry[]): void {
       exp.category || "Různé",
       String(exp.amountOriginal ?? 0),
       exp.currency || "CZK",
+      String(Math.round(czk)),
       payment,
       exp.note || "",
     ]);
@@ -118,6 +132,7 @@ export function exportCSV(expenses: Expense[], services: ServiceEntry[]): void {
     ]
       .filter(Boolean)
       .join(" | ");
+    const czk = convertToCZK(svc.price, svc.currency);
 
     rows.push([
       "Služba",
@@ -126,6 +141,7 @@ export function exportCSV(expenses: Expense[], services: ServiceEntry[]): void {
       svc.category || "Jiné",
       String(svc.price ?? 0),
       svc.currency || "THB",
+      String(Math.round(czk)),
       payment,
       noteAndItems,
     ]);
@@ -149,7 +165,7 @@ export function exportCSV(expenses: Expense[], services: ServiceEntry[]): void {
 }
 
 /**
- * Načte a obnoví data z vybraného JSON souboru do Firestore.
+ * Načte a obnoví data z vybraného JSON souboru do Firestore bez použití any.
  * Existující záznamy (se stejným ID) aktualizuje ({ merge: true }), nové vytvoří.
  */
 export async function restoreFromJSON(
@@ -159,7 +175,7 @@ export async function restoreFromJSON(
   const targetDb = dbInstance || defaultDb;
   const text = await file.text();
 
-  let parsed: any;
+  let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
@@ -170,8 +186,9 @@ export async function restoreFromJSON(
     throw new Error("Neplatný obsah souboru zálohy.");
   }
 
-  const rawExpenses: any[] = Array.isArray(parsed.expenses) ? parsed.expenses : [];
-  const rawServices: any[] = Array.isArray(parsed.services) ? parsed.services : [];
+  const payload = parsed as Record<string, unknown>;
+  const rawExpenses: unknown[] = Array.isArray(payload.expenses) ? payload.expenses : [];
+  const rawServices: unknown[] = Array.isArray(payload.services) ? payload.services : [];
 
   if (rawExpenses.length === 0 && rawServices.length === 0) {
     throw new Error("Soubor neobsahuje žádná data výdajů ani služeb k obnovení.");
@@ -181,19 +198,23 @@ export async function restoreFromJSON(
   let servicesRestored = 0;
 
   // 1. Obnova výdajů
-  for (const exp of rawExpenses) {
-    if (!exp || typeof exp !== "object") continue;
+  for (const expItem of rawExpenses) {
+    if (!expItem || typeof expItem !== "object") continue;
+    const exp = expItem as Record<string, unknown>;
+
+    const amountOrig = Number(exp.amountOriginal) || 0;
+    const curr = (exp.currency || "CZK").toString();
+    const czk = Number(exp.amountCZK) || convertToCZK(amountOrig, curr);
 
     const cleanExpense = sanitizeFirestoreData({
-      amountOriginal: Number(exp.amountOriginal) || 0,
-      currency: exp.currency || "CZK",
-      amountCZK: Number(exp.amountCZK) || 0,
-      category: exp.category || "Různé",
+      amountOriginal: amountOrig,
+      currency: curr,
+      amountCZK: czk,
+      category: (exp.category || "Různé").toString(),
       note: (exp.note || "").toString().trim(),
       merchant: exp.merchant ? exp.merchant.toString().trim() : "",
-      createdAt: exp.createdAt || new Date().toISOString(),
+      createdAt: (exp.createdAt || new Date().toISOString()).toString(),
       paymentMethod: exp.paymentMethod === "card" ? "card" : "cash",
-      ...(exp.location && typeof exp.location === "object" ? { location: exp.location } : {}),
     });
 
     if (exp.id && typeof exp.id === "string") {
@@ -205,19 +226,22 @@ export async function restoreFromJSON(
   }
 
   // 2. Obnova služeb
-  for (const svc of rawServices) {
-    if (!svc || typeof svc !== "object") continue;
+  for (const svcItem of rawServices) {
+    if (!svcItem || typeof svcItem !== "object") continue;
+    const svc = svcItem as Record<string, unknown>;
 
     const cleanService = sanitizeFirestoreData({
       name: (svc.name || "").toString().trim(),
       location: (svc.location || "").toString().trim(),
       category: (svc.category || "Jiné").toString().trim(),
-      items: Array.isArray(svc.items) ? svc.items : [],
+      items: Array.isArray(svc.items)
+        ? svc.items.map((i) => (i != null ? String(i) : "")).filter(Boolean)
+        : [],
       price: Number(svc.price) || 0,
-      currency: svc.currency || "THB",
+      currency: (svc.currency || "THB").toString(),
       rating: Number(svc.rating) || 5,
       note: svc.note ? svc.note.toString().trim() : "",
-      createdAt: svc.createdAt || new Date().toISOString(),
+      createdAt: (svc.createdAt || new Date().toISOString()).toString(),
       paymentMethod: svc.paymentMethod === "card" ? "card" : "cash",
     });
 

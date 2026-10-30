@@ -9,13 +9,18 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Expense, Currency, ExpenseCategory, getCategoryDefinition, ServiceEntry, PaymentMethod } from "@/lib/types";
+import { Expense, Currency, ExpenseCategory, getCategoryDefinition, ServiceEntry } from "@/lib/types";
 import {
   fetchExchangeRates,
-  convertAmount,
+  convertToCZK,
   DEFAULT_EXCHANGE_RATES,
   ExchangeRates,
-} from "@/lib/rates";
+} from "@/lib/currency";
+import {
+  formatNumber,
+  formatCZK,
+  formatCurrency,
+} from "@/lib/formatters";
 import { subscribeToServices } from "@/lib/servicesStore";
 import {
   ReceiptText,
@@ -89,7 +94,7 @@ export default function StatsView() {
   useEffect(() => {
     fetchExchangeRates()
       .then((r) => { if (r) setRates(r); })
-      .catch((err) => console.warn("Chyba pri nacitani kurzu:", err));
+      .catch((err) => console.warn("Chyba při načítání kurzů:", err));
   }, []);
 
   // Load services via reactive listener
@@ -137,18 +142,15 @@ export default function StatsView() {
     return () => unsubscribe();
   }, []);
 
-  const formatNumber = (val: number, maxDecimals = 0) =>
-    new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: maxDecimals }).format(val);
-
   // ── Expenses total ──────────────────────────────────────────────────────────
   const totalExpensesCZK = useMemo(
     () => expenses.reduce((acc, curr) => acc + (curr.amountCZK || 0), 0),
     [expenses]
   );
 
-  // ── Services total ──────────────────────────────────────────────────────────
+  // ── Services total s využitím convertToCZK ──────────────────────────────────
   const totalServicesCZK = useMemo(
-    () => services.reduce((acc, s) => acc + convertAmount(s.price, s.currency, "CZK", rates), 0),
+    () => services.reduce((acc, s) => acc + convertToCZK(s.price, s.currency, rates), 0),
     [services, rates]
   );
 
@@ -213,14 +215,14 @@ export default function StatsView() {
       .sort((a, b) => b.totalCZK - a.totalCZK);
   }, [expenses, totalExpensesCZK]);
 
-  // ── Service category stats ──────────────────────────────────────────────────
+  // ── Service category stats s využitím convertToCZK ──────────────────────────
   const serviceCategoryStats = useMemo(() => {
     const map: Record<string, { totalCZK: number; count: number; paletteIdx: number }> = {};
     let catIndex = 0;
     const catOrder: string[] = [];
 
     services.forEach((s) => {
-      const czk = convertAmount(s.price, s.currency, "CZK", rates);
+      const czk = convertToCZK(s.price, s.currency, rates);
       if (!map[s.category]) {
         map[s.category] = { totalCZK: 0, count: 0, paletteIdx: catIndex % SERVICE_CAT_PALETTE.length };
         catOrder.push(s.category);
@@ -257,7 +259,7 @@ export default function StatsView() {
     return targetCurrencies.map((curr) => ({ currency: curr, total: sums[curr] }));
   }, [expenses, services]);
 
-  // ── Payment method stats (Hotovost vs. Karta) ──────────────────────────────
+  // ── Payment method stats (Hotovost vs. Karta) s convertToCZK ───────────────
   const paymentMethodStats = useMemo(() => {
     let cashCZK = 0;
     let cashCount = 0;
@@ -276,7 +278,7 @@ export default function StatsView() {
     });
 
     services.forEach((s) => {
-      const czk = convertAmount(s.price, s.currency, "CZK", rates);
+      const czk = convertToCZK(s.price, s.currency, rates);
       if (s.paymentMethod === "card") {
         cardCZK += czk;
         cardCount += 1;
@@ -370,7 +372,7 @@ export default function StatsView() {
               </p>
               {totalServicesCZK > 0 && (
                 <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
-                  Z toho služby: {formatNumber(totalServicesCZK)} Kč
+                  Z toho služby: {formatCZK(totalServicesCZK)}
                 </p>
               )}
             </div>
@@ -432,7 +434,7 @@ export default function StatsView() {
                       </div>
                       <div className="text-right shrink-0">
                         <span className="font-black text-slate-900 tracking-tight">
-                          {formatNumber(item.totalCZK)} Kč
+                          {formatCZK(item.totalCZK)}
                         </span>
                         <span className="text-slate-400 font-semibold text-xs ml-1.5">
                           {item.percent}%
@@ -526,7 +528,7 @@ export default function StatsView() {
                 <span>Služby podle typů</span>
               </h2>
               <span className="text-[11px] text-slate-400">
-                {services.length} záznamů · {formatNumber(totalServicesCZK)} Kč
+                {services.length} záznamů · {formatCZK(totalServicesCZK)}
               </span>
             </div>
 
@@ -550,7 +552,7 @@ export default function StatsView() {
                       </div>
                       <div className="text-right shrink-0">
                         <span className="font-black text-slate-900 tracking-tight">
-                          {formatNumber(item.totalCZK)} Kč
+                          {formatCZK(item.totalCZK)}
                         </span>
                         <span className="text-slate-400 font-semibold text-xs ml-1.5">
                           {item.percent}%
@@ -604,8 +606,7 @@ export default function StatsView() {
                     <span className="text-slate-400 font-mono text-[11px]">{info.symbol}</span>
                   </div>
                   <div className="text-base sm:text-lg font-black text-slate-900 tracking-tight mt-1 truncate">
-                    {formatNumber(total, currency === "USD" ? 2 : 0)}{" "}
-                    <span className="text-xs font-semibold text-slate-400">{currency}</span>
+                    {formatCurrency(total, currency)}
                   </div>
                 </div>
               );

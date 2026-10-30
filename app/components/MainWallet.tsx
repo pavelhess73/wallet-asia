@@ -24,10 +24,16 @@ import {
 } from "@/lib/types";
 import {
   fetchExchangeRates,
-  convertAmount,
+  convertToCZK,
   DEFAULT_EXCHANGE_RATES,
   ExchangeRates,
-} from "@/lib/rates";
+} from "@/lib/currency";
+import {
+  formatNumber,
+  formatCZK,
+  formatCurrency,
+  formatRelativeDateCzech,
+} from "@/lib/formatters";
 import {
   Loader2,
   Plus,
@@ -36,7 +42,6 @@ import {
   Train,
   UtensilsCrossed,
   Wine,
-  Coffee,
   ShoppingCart,
   Hotel,
   Plane,
@@ -189,10 +194,6 @@ export default function MainWallet() {
             merchant: data.merchant || undefined,
             createdAt: data.createdAt || new Date().toISOString(),
             paymentMethod: data.paymentMethod === "card" ? "card" : "cash",
-            location:
-              data.location?.lat != null && data.location?.lng != null
-                ? { lat: Number(data.location.lat), lng: Number(data.location.lng) }
-                : undefined,
           };
         });
 
@@ -208,13 +209,6 @@ export default function MainWallet() {
 
     return () => unsubscribe();
   }, []);
-
-  // Pomocné formátování čísel a měn
-  const formatNumber = (val: number, maxDecimals = 0) => {
-    return new Intl.NumberFormat("cs-CZ", {
-      maximumFractionDigits: maxDecimals,
-    }).format(val);
-  };
 
   // Výpočet Total (celkový součet v CZK)
   const totalCZK = useMemo(() => {
@@ -246,7 +240,7 @@ export default function MainWallet() {
   }, [expenses, isClient]);
 
   // Čistý feed výdajů seskupených přímo podle dnů (createdAt).
-  // Locale-závislé labely ('Dnes', 'Včera', Intl.DateTimeFormat) se počítají
+  // Locale-závislé labely ('Dnes • 11. října', 'Včera • 10. října') se počítají
   // AŽ po mountu (isClient = true), aby nedošlo k Hydration Error #441.
   const groupedExpenses = useMemo(() => {
     const groups: {
@@ -267,31 +261,7 @@ export default function MainWallet() {
           dateKey = d.toISOString().split("T")[0];
 
           if (isClient) {
-            const now = new Date();
-            const isCurrentDay =
-              d.getDate() === now.getDate() &&
-              d.getMonth() === now.getMonth() &&
-              d.getFullYear() === now.getFullYear();
-
-            const yesterday = new Date();
-            yesterday.setDate(now.getDate() - 1);
-            const isYesterday =
-              d.getDate() === yesterday.getDate() &&
-              d.getMonth() === yesterday.getMonth() &&
-              d.getFullYear() === yesterday.getFullYear();
-
-            const formattedDay = new Intl.DateTimeFormat("cs-CZ", {
-              day: "numeric",
-              month: "long",
-            }).format(d);
-
-            if (isCurrentDay) {
-              label = `Dnes • ${formattedDay}`;
-            } else if (isYesterday) {
-              label = `Včera • ${formattedDay}`;
-            } else {
-              label = formattedDay;
-            }
+            label = formatRelativeDateCzech(d);
           } else {
             // Server / pre-hydration: prázdný label – klient doplní po mountu
             label = dateKey;
@@ -320,11 +290,11 @@ export default function MainWallet() {
     }));
   }, [expenses, isClient]);
 
-  // Živý přepočet pro náhled v ručním formuláři
+  // Živý přepočet pro náhled v ručním formuláři s použitím convertToCZK
   const numericAmount = parseFloat(amountOriginal);
   const previewAmountCZK =
     !isNaN(numericAmount) && numericAmount > 0
-      ? convertAmount(numericAmount, currency, "CZK", rates)
+      ? convertToCZK(numericAmount, currency, rates)
       : 0;
 
   // Zobrazení toastu o úspěchu
@@ -399,8 +369,8 @@ export default function MainWallet() {
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const numericAmount = parseFloat(amountOriginal);
-    if (!amountOriginal || isNaN(numericAmount) || numericAmount <= 0) {
+    const numAmount = parseFloat(amountOriginal);
+    if (!amountOriginal || isNaN(numAmount) || numAmount <= 0) {
       setErrorMessage("Zadejte platnou částku vyšší než 0.");
       return;
     }
@@ -414,13 +384,13 @@ export default function MainWallet() {
     setErrorMessage(null);
 
     try {
-      const calculatedCZK = convertAmount(numericAmount, currency, "CZK", rates);
+      const calculatedCZK = convertToCZK(numAmount, currency, rates);
 
       if (editingExpense && editingExpense.id) {
         // AKTUALIZACE EXISTUJÍCÍHO VÝDAJE
         const expenseRef = doc(db, "expenses", editingExpense.id);
         const updatePayload: Record<string, unknown> = {
-          amountOriginal: numericAmount,
+          amountOriginal: numAmount,
           currency,
           amountCZK: calculatedCZK,
           category: manualCategory,
@@ -435,11 +405,11 @@ export default function MainWallet() {
         }
 
         await updateDoc(expenseRef, updatePayload);
-        showSuccess(`Výdaj upraven: ${note.trim()} (${formatNumber(calculatedCZK)} Kč)`);
+        showSuccess(`Výdaj upraven: ${note.trim()} (${formatCZK(calculatedCZK)})`);
       } else {
         // PŘIDÁNÍ NOVÉHO VÝDAJE
         const expensePayload: Record<string, unknown> = {
-          amountOriginal: numericAmount,
+          amountOriginal: numAmount,
           currency,
           amountCZK: calculatedCZK,
           category: manualCategory,
@@ -453,7 +423,7 @@ export default function MainWallet() {
         }
 
         await addDoc(collection(db, "expenses"), expensePayload);
-        showSuccess(`Přidán výdaj: ${note.trim()} (${formatNumber(calculatedCZK)} Kč)`);
+        showSuccess(`Přidán výdaj: ${note.trim()} (${formatCZK(calculatedCZK)})`);
       }
 
       // Vyčištění a zavření
@@ -599,7 +569,7 @@ export default function MainWallet() {
                     {isClient ? group.label : group.dateKey}
                   </span>
                   <span className="text-xs font-black text-slate-800 tracking-tight">
-                    {formatNumber(group.totalCZK)} Kč
+                    {formatCZK(group.totalCZK)}
                   </span>
                 </div>
 
@@ -633,86 +603,86 @@ export default function MainWallet() {
                               <span className="font-medium text-slate-500">
                                 {def.label}
                               </span>
-                                {expense.merchant && (
+                              {expense.merchant && (
+                                <>
+                                  <span>•</span>
+                                  <span className="truncate">{expense.merchant}</span>
+                                </>
+                              )}
+                              {expense.currency !== "CZK" && (
+                                <>
+                                  <span>•</span>
+                                  <span className="font-mono text-slate-400">
+                                    {formatCurrency(expense.amountOriginal, expense.currency)}
+                                  </span>
+                                </>
+                              )}
+                              <span>•</span>
+                              <span className="inline-flex items-center gap-1 font-medium shrink-0">
+                                {expense.paymentMethod === "card" ? (
                                   <>
-                                    <span>•</span>
-                                    <span className="truncate">{expense.merchant}</span>
+                                    <CreditCard className="h-3 w-3 text-blue-500" />
+                                    <span className="text-blue-600">Karta</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Banknote className="h-3 w-3 text-emerald-500" />
+                                    <span className="text-emerald-600">Hotovost</span>
                                   </>
                                 )}
-                                {expense.currency !== "CZK" && (
-                                  <>
-                                    <span>•</span>
-                                    <span className="font-mono text-slate-400">
-                                      {formatNumber(expense.amountOriginal, 0)} {expense.currency}
-                                    </span>
-                                  </>
-                                )}
-                                <span>•</span>
-                                <span className="inline-flex items-center gap-1 font-medium shrink-0">
-                                  {expense.paymentMethod === "card" ? (
-                                    <>
-                                      <CreditCard className="h-3 w-3 text-blue-500" />
-                                      <span className="text-blue-600">Karta</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Banknote className="h-3 w-3 text-emerald-500" />
-                                      <span className="text-emerald-600">Hotovost</span>
-                                    </>
-                                  )}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Pravá část: Částka v CZK + Ikony Edit & Delete */}
-                          <div className="text-right shrink-0 flex flex-col items-end">
-                            <div className="text-sm font-black text-slate-900 tracking-tight">
-                              {formatNumber(expense.amountCZK)} Kč
-                            </div>
-                            {expense.currency !== "CZK" && (
-                              <div className="text-[10px] text-slate-400 font-medium">
-                                {formatNumber(expense.amountOriginal, 0)} {expense.currency}
-                              </div>
-                            )}
-
-                            {/* Akční tlačítka pro Úpravu & Smazání */}
-                            <div className="flex items-center gap-1 mt-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleOpenEdit(expense);
-                                }}
-                                className="p-1 rounded-md text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors"
-                                title="Upravit výdaj"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDelete(expense.id);
-                                }}
-                                className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                title="Smazat výdaj"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
+                              </span>
                             </div>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </section>
-              ))
-            )}
-          </div>
-        </main>
 
-      {/* SPODNÍ FIXOVANÁ SEKCE (RYCHLÉ ŠABLONY + DOMINANTNÍ TLAČÍTKO NOVÝ VÝDAJ + SPODNÍ NAVIGACE, z-index 50) */}
+                        {/* Pravá část: Částka v CZK + Ikony Edit & Delete */}
+                        <div className="text-right shrink-0 flex flex-col items-end">
+                          <div className="text-sm font-black text-slate-900 tracking-tight">
+                            {formatCZK(expense.amountCZK)}
+                          </div>
+                          {expense.currency !== "CZK" && (
+                            <div className="text-[10px] text-slate-400 font-medium font-mono">
+                              {formatCurrency(expense.amountOriginal, expense.currency)}
+                            </div>
+                          )}
+
+                          {/* Akční tlačítka pro Úpravu & Smazání */}
+                          <div className="flex items-center gap-1 mt-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenEdit(expense);
+                              }}
+                              className="p-1 rounded-md text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+                              title="Upravit výdaj"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDelete(expense.id);
+                              }}
+                              className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                              title="Smazat výdaj"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            ))
+          )}
+        </div>
+      </main>
+
+      {/* SPODNÍ FIXOVANÁ SEKCE */}
       <div className="fixed bottom-0 left-0 right-0 z-50 pointer-events-none">
         {/* Lišta s rychlými šablonami (Quick Presets) */}
         <div className="max-w-md mx-auto px-4 pb-2 pointer-events-auto sm:max-w-lg">
@@ -936,7 +906,7 @@ export default function MainWallet() {
                       />
                       {previewAmountCZK > 0 && currency !== "CZK" && (
                         <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
-                          ≈ {formatNumber(previewAmountCZK)} Kč
+                          ≈ {formatCZK(previewAmountCZK)}
                         </div>
                       )}
                     </div>
@@ -965,14 +935,22 @@ export default function MainWallet() {
                   <p className="text-[11px] text-slate-500 mt-1.5 leading-snug">
                     {numericAmount > 0 && previewAmountCZK > 0 ? (
                       <>
-                        Přepočet: {amountOriginal} {currency} ≈ {formatNumber(previewAmountCZK)} CZK{" "}
+                        Přepočet: {formatCurrency(numericAmount, currency)} ≈ {formatCZK(previewAmountCZK)}{" "}
                         <span className="text-slate-400">
-                          (kurz 1 CZK = {rates[currency] ? (rates[currency] >= 100 ? Math.round(rates[currency]).toLocaleString("cs-CZ") : rates[currency].toFixed(2)) : "1"} {currency})
+                          (kurz 1 CZK ={" "}
+                          {rates[currency]
+                            ? formatNumber(rates[currency], rates[currency] >= 100 ? 0 : 2)
+                            : "1"}{" "}
+                          {currency})
                         </span>
                       </>
                     ) : (
                       <span className="text-slate-400">
-                        Kurz 1 CZK = {rates[currency] ? (rates[currency] >= 100 ? Math.round(rates[currency]).toLocaleString("cs-CZ") : rates[currency].toFixed(2)) : "1"} {currency}
+                        Kurz 1 CZK ={" "}
+                        {rates[currency]
+                          ? formatNumber(rates[currency], rates[currency] >= 100 ? 0 : 2)
+                          : "1"}{" "}
+                        {currency}
                       </span>
                     )}
                   </p>

@@ -6,7 +6,6 @@ import {
   ServiceCategory,
   ServiceEntry,
   getServiceCatStyle,
-  DEFAULT_SERVICE_CATEGORIES,
   CURRENCIES,
   PaymentMethod,
 } from "@/lib/types";
@@ -24,10 +23,15 @@ import {
 import ManageCategoriesModal from "@/app/services/components/ManageCategoriesModal";
 import {
   fetchExchangeRates,
-  convertAmount,
+  convertToCZK,
   DEFAULT_EXCHANGE_RATES,
   ExchangeRates,
-} from "@/lib/rates";
+} from "@/lib/currency";
+import {
+  formatCZK,
+  formatCurrency,
+  formatDateCzech,
+} from "@/lib/formatters";
 import {
   Plus,
   X,
@@ -51,18 +55,6 @@ import {
 } from "lucide-react";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
-
-function formatDate(iso: string): string {
-  try {
-    return new Intl.DateTimeFormat("cs-CZ", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
-}
 
 function getCatDef(category: string, cats: ServiceCategory[]) {
   const cat = cats.find((c) => c.name === category) ?? {
@@ -128,17 +120,17 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
         💆
       </div>
       <div>
-        <h2 className="text-lg font-black text-slate-900">Zatim zadne zaznamy</h2>
+        <h2 className="text-lg font-black text-slate-900">Zatím žádné záznamy</h2>
         <p className="text-xs text-slate-500 mt-1.5 max-w-xs leading-relaxed">
-          Pridej svou prvni využitou službu — masaz, pradelnu, pujcovnu skutru nebo vylet.
+          Přidej svou první využitou službu — masáž, prádelnu, půjčovnu skútrů nebo výlet.
         </p>
       </div>
       <button
         type="button"
         onClick={onAdd}
-        className="px-6 py-2.5 rounded-full bg-gradient-to-r from-rose-500 to-pink-500 text-white font-bold text-sm shadow-lg shadow-rose-400/30 hover:shadow-rose-400/50 transition-all active:scale-95"
+        className="px-6 py-2.5 rounded-full bg-gradient-to-r from-rose-500 to-pink-500 text-white font-bold text-sm shadow-lg shadow-rose-400/30 hover:shadow-rose-400/50 transition-all active:scale-95 cursor-pointer"
       >
-        + Pridat prvni zaznam
+        + Přidat první záznam
       </button>
     </div>
   );
@@ -242,7 +234,7 @@ function ServiceCard({
 
         <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-black text-slate-900">{entry.price.toLocaleString("cs-CZ")} {entry.currency}</span>
+            <span className="text-sm font-black text-slate-900">{formatCurrency(entry.price, entry.currency)}</span>
             <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
               entry.paymentMethod === "card"
                 ? "bg-blue-50 text-blue-700 border border-blue-200/60"
@@ -261,7 +253,7 @@ function ServiceCard({
               )}
             </span>
           </div>
-          {isClient && <span className="text-[11px] text-slate-400">{formatDate(entry.createdAt)}</span>}
+          {isClient && <span className="text-[11px] text-slate-400">{formatDateCzech(entry.createdAt)}</span>}
         </div>
       </div>
     </article>
@@ -270,11 +262,10 @@ function ServiceCard({
 
 // ─── Modal Form State ─────────────────────────────────────────────────────────
 
-
 const DEFAULT_FORM = {
   name: "",
   location: "",
-  category: "",   // dynamicky naplneno prvni kategorii pri otevreni modalu
+  category: "",   // dynamicky naplněno první kategorií při otevření modálu
   itemsRaw: "",
   price: "",
   currency: "THB",
@@ -309,12 +300,14 @@ function ServiceModal({
   const [showManage, setShowManage] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   useEffect(() => { setTimeout(() => nameRef.current?.focus(), 80); }, []);
-  // Pokud chybi kategorie a seznam se nacetl, nastavit prvni dostupnou
+
+  // Pokud chybí kategorie a seznam se načetl, nastavit první dostupnou
   useEffect(() => {
     if (!form.category && categories.length > 0) {
       setForm((f) => ({ ...f, category: categories[0]?.name ?? "" }));
     }
   }, [categories, form.category]);
+
   const set = <K extends keyof FormState>(field: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [field]: value }));
   const handleSubmit = async (e: React.FormEvent) => { e.preventDefault(); await onSubmit(form, initial.id); };
@@ -325,13 +318,13 @@ function ServiceModal({
       <div className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 flex flex-col animate-in slide-in-from-bottom-5 max-h-[92vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100 shrink-0">
           <div>
-            <h3 className="text-base font-black text-slate-900">{isEdit ? "Upravit zaznam" : "Novy zaznam sluzby"}</h3>
-            <p className="text-[11px] text-slate-400 mt-0.5">{isEdit ? "Upravte udaje zaznamu" : "Zaznamenej využitou sluzbu na ceste"}</p>
+            <h3 className="text-base font-black text-slate-900">{isEdit ? "Upravit záznam" : "Nový záznam služby"}</h3>
+            <p className="text-[11px] text-slate-400 mt-0.5">{isEdit ? "Upravte údaje záznamu" : "Zaznamenej využitou službu na cestě"}</p>
           </div>
           <div className="flex items-center gap-1.5">
             <button type="button" onClick={() => setShowManage(true)}
               className="h-8 w-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors"
-              title="Spravovat typy sluzeb">
+              title="Spravovat typy služeb">
               <Settings2 className="h-4 w-4" />
             </button>
             <button type="button" onClick={onClose} className="h-8 w-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors">
@@ -343,7 +336,7 @@ function ServiceModal({
         <form onSubmit={handleSubmit} className="overflow-y-auto flex-1 px-5 py-4 flex flex-col gap-4">
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Typ sluzby</label>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Typ služby</label>
               <button type="button" onClick={() => setShowManage(true)}
                 className="text-[10px] text-rose-500 font-semibold hover:underline">+ Spravovat</button>
             </div>
@@ -363,44 +356,44 @@ function ServiceModal({
                   </button>
                 );
               })}
-              {/* Zkratka: pridat novou kategorii */}
+              {/* Zkratka: přidat novou kategorii */}
               <button type="button" onClick={() => setShowManage(true)}
                 className="p-2 rounded-xl border border-dashed border-slate-300 flex flex-col items-center gap-1 text-[11px] font-semibold text-slate-400 hover:border-rose-300 hover:text-rose-400 transition-all">
                 <Plus className="h-5 w-5" />
-                <span>Pridat</span>
+                <span>Přidat</span>
               </button>
             </div>
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Nazev *</label>
-            <input ref={nameRef} type="text" required placeholder="Napr. Massage World, Laundry Queen…" value={form.name} onChange={(e) => set("name", e.target.value)}
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Název *</label>
+            <input ref={nameRef} type="text" required placeholder="Např. Massage World, Laundry Queen…" value={form.name} onChange={(e) => set("name", e.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-400 focus:bg-white transition-colors" />
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Misto *</label>
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Místo *</label>
             <div className="relative">
               <MapPin className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input type="text" required placeholder="Napr. Chiang Mai – Old City" value={form.location} onChange={(e) => set("location", e.target.value)}
+              <input type="text" required placeholder="Např. Chiang Mai – Old City" value={form.location} onChange={(e) => set("location", e.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-slate-50/50 pl-9 pr-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-400 focus:bg-white transition-colors" />
             </div>
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Konkretni polozky <span className="text-slate-400 lowercase font-medium">(kazda na novy radek)</span></label>
-            <textarea rows={3} placeholder={"Thajska masaz 1h\nOlejova masaz 90min\nSpropitne"} value={form.itemsRaw} onChange={(e) => set("itemsRaw", e.target.value)}
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Konkrétní položky <span className="text-slate-400 lowercase font-medium">(každá na nový řádek)</span></label>
+            <textarea rows={3} placeholder={"Thajská masáž 1h\nOlejová masáž 90min\nSpropitné"} value={form.itemsRaw} onChange={(e) => set("itemsRaw", e.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-400 focus:bg-white transition-colors resize-none leading-relaxed" />
           </div>
 
           <div className="grid grid-cols-5 gap-2">
             <div className="col-span-3">
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Cena *</label>
-              <input type="number" required min="0" step="any" placeholder="Napr. 350" value={form.price} onChange={(e) => set("price", e.target.value)}
+              <input type="number" required min="0" step="any" placeholder="Např. 350" value={form.price} onChange={(e) => set("price", e.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-base font-bold text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-400 focus:bg-white transition-colors" />
             </div>
             <div className="col-span-2">
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Mena</label>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Měna</label>
               <div className="relative">
                 <select value={form.currency} onChange={(e) => set("currency", e.target.value)}
                   className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:border-rose-400 focus:bg-white transition-colors pr-7">
@@ -450,16 +443,16 @@ function ServiceModal({
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Poznamka / Heslo / Kontakt <span className="text-slate-400 lowercase font-medium">(volitelne)</span></label>
-            <input type="text" placeholder="Napr. heslo k wifi, telefonni cislo, doporuceni…" value={form.note} onChange={(e) => set("note", e.target.value)}
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Poznámka / Heslo / Kontakt <span className="text-slate-400 lowercase font-medium">(volitelné)</span></label>
+            <input type="text" placeholder="Např. heslo k wifi, telefonní číslo, doporučení…" value={form.note} onChange={(e) => set("note", e.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-400 focus:bg-white transition-colors" />
           </div>
 
           <button type="submit" disabled={isSubmitting}
             className="mt-1 w-full py-3 rounded-2xl bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 active:scale-[0.99] text-white font-bold text-sm shadow-md shadow-rose-500/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50">
-            {isSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /><span>Ukladam…</span></>) :
-              isEdit ? (<><Pencil className="h-4 w-4" /><span>Ulozit zmeny</span></>) :
-              (<><Plus className="h-4 w-4 stroke-[2.5]" /><span>Ulozit zaznam</span></>)}
+            {isSubmitting ? (<><Loader2 className="h-4 w-4 animate-spin" /><span>Ukládám…</span></>) :
+              isEdit ? (<><Pencil className="h-4 w-4" /><span>Uložit změny</span></>) :
+              (<><Plus className="h-4 w-4 stroke-[2.5]" /><span>Uložit záznam</span></>)}
           </button>
         </form>
       </div>
@@ -492,11 +485,11 @@ export default function ServicesPage() {
 
   useEffect(() => { setIsClient(true); }, []);
 
-  // Nacti aktualni kurzy
+  // Načíst aktuální kurzy
   useEffect(() => {
     fetchExchangeRates()
       .then((r) => { if (r) setRates(r); })
-      .catch((err) => console.warn("Chyba pri nacitani kurzu:", err));
+      .catch((err) => console.warn("Chyba při načítání kurzů:", err));
   }, []);
 
   // Reaktivní Firestore listener pro kategorie + jednorázový seed
@@ -573,17 +566,14 @@ export default function ServicesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    // 1. Okamžité optimistické odebrání z UI (nulové zpoždění, žádné probliknutí)
     const previousEntries = entries;
     setEntries((current) => current.filter((e) => e.id !== id));
 
     try {
-      // 2. Trvalé smazání z Firestore s ochranou proti návratu z cache
       await deleteService(id);
       showToast("Smazáno");
     } catch (err) {
       console.error("Chyba při mazání služby:", err);
-      // V případě chyby vrátíme původní stav
       setEntries(previousEntries);
       showToast("Chyba při mazání", "err");
     }
@@ -619,13 +609,13 @@ export default function ServicesPage() {
     return map;
   }, [entries]);
 
-  // Celkova utrata za všechny zaznamy (prevedena do CZK)
+  // Celková útrata za všechny záznamy s využitím convertToCZK
   const totalCZK = useMemo(() =>
-    entries.reduce((sum, e) => sum + convertAmount(e.price, e.currency, "CZK", rates), 0),
+    entries.reduce((sum, e) => sum + convertToCZK(e.price, e.currency, rates), 0),
     [entries, rates]
   );
 
-  // Dnesni utrata – pocita se az po mountu (isClient) kvuli Hydration Error #441
+  // Dnešní útrata s využitím convertToCZK
   const todayCZK = useMemo(() => {
     if (!isClient) return 0;
     const now = new Date();
@@ -638,13 +628,10 @@ export default function ServicesPage() {
             d.getFullYear() === now.getFullYear();
         } catch { return false; }
       })
-      .reduce((sum, e) => sum + convertAmount(e.price, e.currency, "CZK", rates), 0);
+      .reduce((sum, e) => sum + convertToCZK(e.price, e.currency, rates), 0);
   }, [entries, rates, isClient]);
 
-  const formatCZK = (val: number) =>
-    new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 0 }).format(val);
-
-  // Agreguje soucty podle puvodni meny
+  // Agreguje součty podle původní měny
   const aggregateByCurrency = (subset: ServiceEntry[]): Record<string, number> => {
     const map: Record<string, number> = {};
     for (const e of subset) {
@@ -653,32 +640,22 @@ export default function ServicesPage() {
     return map;
   };
 
-  // Kompaktni formatovani (VND/LAK zobrazuje v tisicich s "k")
-  const formatLocalCurrency = (amount: number, currency: string): string => {
-    if ((currency === "VND" || currency === "LAK") && amount >= 1000) {
-      const k = amount / 1000;
-      const rounded = k % 1 === 0 ? k.toFixed(0) : k.toFixed(1);
-      return `${rounded}k ${currency}`;
-    }
-    return `${new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 0 }).format(amount)} ${currency}`;
-  };
-
-  // Prevede mapu mena->soucet na zobrazitelny retezec, napr. "200 THB · 150k VND"
+  // Převede mapu měna->součet na zobrazitelný řetězec, např. "200 THB · 150k VND"
   const formatLocalAmounts = (byCurrency: Record<string, number>): string => {
     return Object.entries(byCurrency)
       .filter(([, v]) => v > 0)
-      .map(([cur, val]) => formatLocalCurrency(val, cur))
+      .map(([cur, val]) => formatCurrency(val, cur, { compact: true }))
       .join(" · ");
   };
 
-  // Agregace po menach – vsechny zaznamy
+  // Agregace po měnách – všechny záznamy
   const totalByCurrency = useMemo(
     () => aggregateByCurrency(entries),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [entries]
   );
 
-  // Agregace po menach – dnesni zaznamy (az po mountu)
+  // Agregace po měnách – dnešní záznamy (až po mountu)
   const todayByCurrency = useMemo(() => {
     if (!isClient) return {};
     const now = new Date();
@@ -694,7 +671,7 @@ export default function ServicesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries, isClient]);
 
-  const pluralZaznamu = (n: number) => n === 1 ? "zaznam" : n < 5 ? "zaznamy" : "zaznamu";
+  const pluralZaznamu = (n: number) => n === 1 ? "záznam" : n < 5 ? "záznamy" : "záznamů";
 
   return (
     <div className="min-h-screen bg-[#F8F6F4] text-slate-800 pb-32">
@@ -713,14 +690,14 @@ export default function ServicesPage() {
             <span className="text-xs font-bold tracking-wider uppercase text-rose-500 flex items-center gap-1.5 mb-1">
               <span>🌏</span><span>Asia Travel Wallet</span>
             </span>
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">Denik služeb</h1>
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">Deník služeb</h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              {isClient ? `${entries.length} ${pluralZaznamu(entries.length)}` : "Nacitam…"}
+              {isClient ? `${entries.length} ${pluralZaznamu(entries.length)}` : "Načítám…"}
             </p>
           </div>
           <button type="button" onClick={openCreate}
-            className="h-10 w-10 rounded-full bg-gradient-to-br from-rose-500 to-pink-500 text-white shadow-lg shadow-rose-400/30 flex items-center justify-center transition-all hover:shadow-rose-400/50 active:scale-95"
-            aria-label="Pridat zaznam">
+            className="h-10 w-10 rounded-full bg-gradient-to-br from-rose-500 to-pink-500 text-white shadow-lg shadow-rose-400/30 flex items-center justify-center transition-all hover:shadow-rose-400/50 active:scale-95 cursor-pointer"
+            aria-label="Přidat záznam">
             <Plus className="h-5 w-5 stroke-[2.5]" />
           </button>
         </header>
@@ -737,8 +714,7 @@ export default function ServicesPage() {
             </div>
             <div>
               <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-                {formatCZK(totalCZK)}{" "}
-                <span className="text-xs font-semibold text-slate-400">Kč</span>
+                {formatCZK(totalCZK)}
               </div>
               <p className="text-[11px] text-slate-400 mt-0.5 font-medium">
                 {entries.length} {pluralZaznamu(entries.length)}
@@ -761,10 +737,9 @@ export default function ServicesPage() {
             </div>
             <div>
               <div className="text-xl sm:text-2xl font-black text-rose-600 tracking-tight">
-                {isClient ? formatCZK(todayCZK) : "–"}{" "}
-                <span className="text-xs font-semibold text-rose-400">Kč</span>
+                {isClient ? formatCZK(todayCZK) : "–"}
               </div>
-              <p className="text-[11px] text-slate-400 mt-0.5 font-medium">dnesni služby</p>
+              <p className="text-[11px] text-slate-400 mt-0.5 font-medium">dnešní služby</p>
               {isClient && Object.keys(todayByCurrency).length > 0 && (
                 <p className="text-[10px] text-slate-400 mt-1 leading-snug truncate">
                   {formatLocalAmounts(todayByCurrency)}
@@ -776,10 +751,10 @@ export default function ServicesPage() {
 
         {entries.length > 0 && (
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 py-1">
-            {/* Vse */}
+            {/* Vše */}
             <button type="button" onClick={() => setActiveFilter("Vse")}
               className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${activeFilter === "Vse" ? "bg-rose-500 text-white border-rose-500 shadow-md shadow-rose-400/30" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"}`}>
-              Vse
+              Vše
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${activeFilter === "Vse" ? "bg-white/25 text-white" : "bg-slate-100 text-slate-500"}`}>{entries.length}</span>
             </button>
             {categories.filter((cat) => (counts[cat.name] ?? 0) > 0).map((cat) => {
@@ -805,7 +780,7 @@ export default function ServicesPage() {
           <EmptyState onAdd={openCreate} />
         ) : filtered.length === 0 ? (
           <div className="text-center py-12 text-slate-400 text-sm">
-            V kategorii <strong>{activeFilter}</strong> nejsou zadne zaznamy.
+            V kategorii <strong>{activeFilter}</strong> nejsou žádné záznamy.
           </div>
         ) : (
           <div className="flex flex-col gap-3">
@@ -819,9 +794,9 @@ export default function ServicesPage() {
       {entries.length > 0 && (
         <div className="fixed bottom-20 right-4 sm:bottom-24 sm:right-6 z-40">
           <button type="button" onClick={openCreate}
-            className="h-13 px-5 rounded-full bg-gradient-to-r from-rose-500 via-rose-600 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white shadow-xl shadow-rose-500/35 flex items-center gap-2 font-bold text-sm tracking-wide transition-all duration-200 active:scale-95 border border-white/20">
+            className="h-13 px-5 rounded-full bg-gradient-to-r from-rose-500 via-rose-600 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white shadow-xl shadow-rose-500/35 flex items-center gap-2 font-bold text-sm tracking-wide transition-all duration-200 active:scale-95 border border-white/20 cursor-pointer">
             <Plus className="h-5 w-5 stroke-[2.5]" />
-            <span>Novy zaznam</span>
+            <span>Nový záznam</span>
           </button>
         </div>
       )}

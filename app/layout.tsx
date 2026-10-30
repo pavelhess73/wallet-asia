@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Asia Travel Wallet",
   description:
-    "Sleduj cestovní výdaje z Asie v reálném čase s AI rozpoznáváním výdajů pomocí Gemini.",
+    "Sleduj cestovní výdaje a služby z Asie v reálném čase s automatickým přepočtem měn.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,

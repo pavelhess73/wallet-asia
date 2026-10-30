@@ -4,6 +4,13 @@ export const CURRENCIES = ["VND", "THB", "LAK", "USD", "EUR", "CZK"] as const;
 export const CurrencySchema = z.enum(CURRENCIES);
 export type Currency = z.infer<typeof CurrencySchema>;
 
+export interface CurrencyRate {
+  currency: Currency;
+  rate: number;
+}
+
+export type ExchangeRates = Record<string, number>;
+
 export const EXPENSE_CATEGORIES = [
   "Gastro",
   "Doprava",
@@ -196,18 +203,13 @@ export function getCategoryDefinition(rawCategory?: string): CategoryDefinition 
   return CATEGORY_DEFINITIONS.Různé;
 }
 
-export type PaymentMethod = "cash" | "card";
-
-export const PAYMENT_METHODS: { id: PaymentMethod; label: string; icon: string }[] = [
+export const PAYMENT_METHODS = [
   { id: "cash", label: "Hotovost", icon: "💵" },
   { id: "card", label: "Karta", icon: "💳" },
-];
+] as const;
 
-export const LocationSchema = z.object({
-  lat: z.number(),
-  lng: z.number(),
-});
-export type Location = z.infer<typeof LocationSchema>;
+export const PaymentMethodSchema = z.enum(["cash", "card"]);
+export type PaymentMethod = z.infer<typeof PaymentMethodSchema>;
 
 export const ExpenseSchema = z.object({
   id: z.string().optional(),
@@ -218,8 +220,7 @@ export const ExpenseSchema = z.object({
   note: z.string(),
   merchant: z.string().optional(),
   createdAt: z.string(),
-  location: LocationSchema.optional(),
-  paymentMethod: z.enum(["cash", "card"]).optional(),
+  paymentMethod: PaymentMethodSchema.optional(),
 });
 
 export type Expense = z.infer<typeof ExpenseSchema>;
@@ -295,13 +296,11 @@ const USER_CAT_PALETTE = [
 export function getServiceCatStyle(
   cat: ServiceCategory
 ): { color: string; bgColor: string; borderColor: string } {
-  // Zkus statický číselník
   const staticKey = cat.name as ServiceCatKey;
   if (SERVICE_CATEGORY_DEFS[staticKey]) {
     const def = SERVICE_CATEGORY_DEFS[staticKey];
     return { color: def.color, bgColor: def.bgColor, borderColor: def.borderColor };
   }
-  // Fallback: deterministická barva podle pořadí / indexu
   const idx = (cat.order ?? 0) % USER_CAT_PALETTE.length;
   return USER_CAT_PALETTE[idx];
 }

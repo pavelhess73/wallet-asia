@@ -9,7 +9,12 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Expense, Currency, ExpenseCategory, getCategoryDefinition, PaymentMethod } from "@/lib/types";
+import { Expense, Currency, ExpenseCategory, getCategoryDefinition } from "@/lib/types";
+import {
+  formatCZK,
+  formatCurrency,
+  formatDateCzech,
+} from "@/lib/formatters";
 import {
   Search,
   Loader2,
@@ -30,25 +35,6 @@ import {
   Banknote,
   CreditCard,
 } from "lucide-react";
-
-// Pomocná funkce pro formátování čísel v českém formátu
-const formatNumber = (val: number, maxDecimals = 0): string =>
-  new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: maxDecimals }).format(val);
-
-// Pomocná funkce pro datum
-function formatDate(iso: string): string {
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return iso;
-    return d.toLocaleDateString("cs-CZ", {
-      day: "numeric",
-      month: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return iso;
-  }
-}
 
 const CATEGORY_ICONS: Record<ExpenseCategory, React.ComponentType<{ className?: string }>> = {
   Gastro: UtensilsCrossed,
@@ -105,7 +91,6 @@ export default function SearchPage() {
             merchant: data.merchant || undefined,
             createdAt: data.createdAt || new Date().toISOString(),
             paymentMethod: data.paymentMethod === "card" ? "card" : "cash",
-            location: data.location || undefined,
           };
         });
 
@@ -224,7 +209,7 @@ export default function SearchPage() {
             <button
               type="button"
               onClick={handleClearSearch}
-              className="text-xs text-slate-400 hover:text-rose-600 flex items-center gap-1 transition-colors px-2 py-1 rounded-lg hover:bg-white"
+              className="text-xs text-slate-400 hover:text-rose-600 flex items-center gap-1 transition-colors px-2 py-1 rounded-lg hover:bg-white cursor-pointer"
             >
               <RotateCcw className="h-3 w-3" />
               <span>Reset</span>
@@ -247,7 +232,7 @@ export default function SearchPage() {
               <button
                 type="button"
                 onClick={() => handleInputChange("")}
-                className="absolute right-3 text-slate-400 hover:text-slate-600 p-1"
+                className="absolute right-3 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
                 title="Vymazat text"
               >
                 <X className="h-4 w-4" />
@@ -314,8 +299,8 @@ export default function SearchPage() {
             <span className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider block">
               Celkový součet
             </span>
-            <span className="text-base sm:text-lg font-black text-slate-900 tracking-tight text-rose-600">
-              {formatNumber(totalCZK)} Kč
+            <span className="text-base sm:text-lg font-black tracking-tight text-rose-600">
+              {formatCZK(totalCZK)}
             </span>
           </div>
         </div>
@@ -345,7 +330,7 @@ export default function SearchPage() {
               <button
                 type="button"
                 onClick={handleClearSearch}
-                className="mt-1 text-xs text-rose-600 font-bold hover:underline"
+                className="mt-1 text-xs text-rose-600 font-bold hover:underline cursor-pointer"
               >
                 Zobrazit všechny výdaje
               </button>
@@ -385,7 +370,7 @@ export default function SearchPage() {
                           </>
                         )}
                         <span>•</span>
-                        <span>{formatDate(expense.createdAt)}</span>
+                        <span>{formatDateCzech(expense.createdAt)}</span>
                         <span>•</span>
                         <span className="inline-flex items-center gap-1 font-medium shrink-0">
                           {expense.paymentMethod === "card" ? (
@@ -407,11 +392,11 @@ export default function SearchPage() {
                   {/* Pravá část: Částka v CZK a původní měně */}
                   <div className="text-right shrink-0 flex flex-col items-end">
                     <div className="text-sm font-black text-slate-900 tracking-tight">
-                      {formatNumber(expense.amountCZK)} Kč
+                      {formatCZK(expense.amountCZK)}
                     </div>
                     {expense.currency !== "CZK" && expense.amountOriginal > 0 && (
                       <div className="text-[10px] text-slate-400 font-medium font-mono">
-                        {formatNumber(expense.amountOriginal, 0)} {expense.currency}
+                        {formatCurrency(expense.amountOriginal, expense.currency)}
                       </div>
                     )}
                   </div>

@@ -57,7 +57,7 @@ export function subscribeToServices(
           name: (data.name ?? "").toString(),
           location: (data.location ?? "").toString(),
           category: (data.category ?? "Jiné").toString(),
-          items: Array.isArray(data.items) ? data.items : [],
+          items: Array.isArray(data.items) ? data.items.map(String) : [],
           price: Number(data.price) || 0,
           currency: (data.currency ?? "THB").toString(),
           rating: Number(data.rating) || 5,
@@ -93,7 +93,7 @@ export async function deleteService(id: string): Promise<void> {
 /**
  * Pomocná funkce pro sanitizaci objektu proti undefined hodnotám před odesláním do Firestore.
  */
-function sanitizeData<T extends Record<string, any>>(data: T): Record<string, any> {
+function sanitizeData<T extends Record<string, unknown>>(data: T): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(data).filter(([_, v]) => v !== undefined)
   );
@@ -122,7 +122,7 @@ export async function updateService(
   id: string,
   updates: Partial<Omit<ServiceEntry, "id">>
 ): Promise<void> {
-  const cleanUpdates: Record<string, any> = { ...updates };
+  const cleanUpdates: Record<string, unknown> = { ...updates };
   if ("note" in updates) {
     cleanUpdates.note = updates.note ? updates.note.trim() : "";
   }
