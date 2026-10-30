@@ -20,6 +20,7 @@ import {
   ExpenseCategory,
   CATEGORY_LIST,
   getCategoryDefinition,
+  PaymentMethod,
 } from "@/lib/types";
 import {
   fetchExchangeRates,
@@ -51,6 +52,8 @@ import {
   Pencil,
   Trash2,
   Calculator,
+  Banknote,
+  CreditCard,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
@@ -145,6 +148,7 @@ export default function MainWallet() {
   const [note, setNote] = useState<string>("");
   const [merchant, setMerchant] = useState<string>("");
   const [manualCategory, setManualCategory] = useState<ExpenseCategory>("Gastro");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
 
   // Stav pro aktuální měnové kurzy
   const [rates, setRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
@@ -201,6 +205,7 @@ export default function MainWallet() {
             note: data.note || "",
             merchant: data.merchant || undefined,
             createdAt: data.createdAt || new Date().toISOString(),
+            paymentMethod: data.paymentMethod === "card" ? "card" : "cash",
             location:
               data.location?.lat != null && data.location?.lng != null
                 ? { lat: Number(data.location.lat), lng: Number(data.location.lng) }
@@ -352,6 +357,7 @@ export default function MainWallet() {
     setNote("");
     setMerchant("");
     setManualCategory("Gastro");
+    setPaymentMethod("cash");
     setIsManualModalOpen(true);
     setTimeout(() => {
       amountInputRef.current?.focus();
@@ -365,6 +371,7 @@ export default function MainWallet() {
     setManualCategory(preset.category);
     setNote(preset.defaultNote);
     setMerchant(preset.defaultMerchant || "");
+    setPaymentMethod("cash");
     if (preset.defaultCurrency) {
       setCurrency(preset.defaultCurrency);
     }
@@ -383,6 +390,7 @@ export default function MainWallet() {
     setMerchant(expense.merchant || "");
     const def = getCategoryDefinition(expense.category);
     setManualCategory(def.id);
+    setPaymentMethod(expense.paymentMethod || "cash");
     setIsManualModalOpen(true);
     setTimeout(() => {
       amountInputRef.current?.focus();
@@ -434,6 +442,7 @@ export default function MainWallet() {
           amountCZK: calculatedCZK,
           category: manualCategory,
           note: note.trim(),
+          paymentMethod,
         };
 
         if (merchant.trim()) {
@@ -452,6 +461,7 @@ export default function MainWallet() {
           amountCZK: calculatedCZK,
           category: manualCategory,
           note: note.trim(),
+          paymentMethod,
           createdAt: new Date().toISOString(),
         };
 
@@ -471,6 +481,7 @@ export default function MainWallet() {
       setAmountOriginal("");
       setNote("");
       setMerchant("");
+      setPaymentMethod("cash");
       setEditingExpense(null);
       setIsManualModalOpen(false);
     } catch (error) {
@@ -657,6 +668,20 @@ export default function MainWallet() {
                                     </span>
                                   </>
                                 )}
+                                <span>•</span>
+                                <span className="inline-flex items-center gap-1 font-medium shrink-0">
+                                  {expense.paymentMethod === "card" ? (
+                                    <>
+                                      <CreditCard className="h-3 w-3 text-blue-500" />
+                                      <span className="text-blue-600">Karta</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Banknote className="h-3 w-3 text-emerald-500" />
+                                      <span className="text-emerald-600">Hotovost</span>
+                                    </>
+                                  )}
+                                </span>
                               </div>
                             </div>
                           </div>
@@ -875,6 +900,39 @@ export default function MainWallet() {
                       </button>
                     );
                   })}
+                </div>
+              </div>
+
+              {/* Způsob platby: Hotovost vs. Karta */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                  Způsob platby
+                </label>
+                <div className="grid grid-cols-2 gap-2 bg-slate-100/80 p-1 rounded-2xl border border-slate-200/60">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod("cash")}
+                    className={`py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      paymentMethod === "cash"
+                        ? "bg-white text-emerald-700 shadow-sm border border-slate-200/50"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    <Banknote className="h-4 w-4 text-emerald-600" />
+                    <span>Hotovost</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod("card")}
+                    className={`py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      paymentMethod === "card"
+                        ? "bg-white text-blue-700 shadow-sm border border-slate-200/50"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    <CreditCard className="h-4 w-4 text-blue-600" />
+                    <span>Karta</span>
+                  </button>
                 </div>
               </div>
 

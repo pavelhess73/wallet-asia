@@ -63,6 +63,7 @@ export function subscribeToServices(
           rating: Number(data.rating) || 5,
           note: data.note ? data.note.toString() : undefined,
           createdAt: data.createdAt ? data.createdAt.toString() : new Date().toISOString(),
+          paymentMethod: data.paymentMethod === "card" ? "card" : "cash",
         });
       }
 
@@ -106,6 +107,7 @@ export async function addService(
 ): Promise<string> {
   const serviceData = {
     ...entry,
+    paymentMethod: entry.paymentMethod || "cash",
     note: entry.note ? entry.note.trim() : "",
   };
   const sanitized = sanitizeData(serviceData);
@@ -123,6 +125,9 @@ export async function updateService(
   const cleanUpdates: Record<string, any> = { ...updates };
   if ("note" in updates) {
     cleanUpdates.note = updates.note ? updates.note.trim() : "";
+  }
+  if ("paymentMethod" in updates) {
+    cleanUpdates.paymentMethod = updates.paymentMethod || "cash";
   }
   const sanitized = sanitizeData(cleanUpdates);
   await updateDoc(doc(db, SERVICES_COL, id), sanitized);

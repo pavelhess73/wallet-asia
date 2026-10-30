@@ -9,7 +9,7 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Expense, Currency, ExpenseCategory, getCategoryDefinition, ServiceEntry } from "@/lib/types";
+import { Expense, Currency, ExpenseCategory, getCategoryDefinition, ServiceEntry, PaymentMethod } from "@/lib/types";
 import {
   fetchExchangeRates,
   convertAmount,
@@ -36,6 +36,8 @@ import {
   CircleDollarSign,
   AlertCircle,
   Wrench,
+  Banknote,
+  CreditCard,
 } from "lucide-react";
 
 export interface CategoryStat {
@@ -114,6 +116,7 @@ export default function StatsView() {
             note: data.note || "",
             merchant: data.merchant || undefined,
             createdAt: data.createdAt || new Date().toISOString(),
+            paymentMethod: data.paymentMethod === "card" ? "card" : "cash",
           };
         });
 
@@ -250,6 +253,55 @@ export default function StatsView() {
     return targetCurrencies.map((curr) => ({ currency: curr, total: sums[curr] }));
   }, [expenses, services]);
 
+  // ── Payment method stats (Hotovost vs. Karta) ──────────────────────────────
+  const paymentMethodStats = useMemo(() => {
+    let cashCZK = 0;
+    let cashCount = 0;
+    let cardCZK = 0;
+    let cardCount = 0;
+
+    expenses.forEach((e) => {
+      const czk = e.amountCZK || 0;
+      if (e.paymentMethod === "card") {
+        cardCZK += czk;
+        cardCount += 1;
+      } else {
+        cashCZK += czk;
+        cashCount += 1;
+      }
+    });
+
+    services.forEach((s) => {
+      const czk = convertAmount(s.price, s.currency, "CZK", rates);
+      if (s.paymentMethod === "card") {
+        cardCZK += czk;
+        cardCount += 1;
+      } else {
+        cashCZK += czk;
+        cashCount += 1;
+      }
+    });
+
+    const sumCZK = cashCZK + cardCZK;
+    const cashPercent = sumCZK > 0 ? Math.round((cashCZK / sumCZK) * 100) : 0;
+    const cardPercent = sumCZK > 0 ? Math.round((cardCZK / sumCZK) * 100) : 0;
+
+    return {
+      cash: {
+        totalCZK: cashCZK,
+        count: cashCount,
+        percent: cashPercent,
+      },
+      card: {
+        totalCZK: cardCZK,
+        count: cardCount,
+        percent: cardPercent,
+      },
+      totalCZK: sumCZK,
+      totalCount: cashCount + cardCount,
+    };
+  }, [expenses, services, rates]);
+
   return (
     <div className="min-h-screen bg-[#F8F6F4] text-slate-800 antialiased selection:bg-rose-500/20 pb-28">
       <main className="max-w-md mx-auto px-4 pt-6 flex flex-col gap-5 sm:max-w-lg">
@@ -383,6 +435,71 @@ export default function StatsView() {
               })}
             </div>
           )}
+        </section>
+
+        {/* ZPŮSOB PLATBY (HOTOVOST VS. KARTA) */}
+        <section className="flex flex-col gap-2.5">
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <CreditCard className="h-3.5 w-3.5 text-slate-400" />
+              <span>Způsob platby</span>
+            </h2>
+            <span className="text-[11px] text-slate-400">Výdaje + služby</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {/* Hotovost Card */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600">Hotovost</span>
+                  <div className="h-7 w-7 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                    <Banknote className="h-3.5 w-3.5" />
+                  </div>
+                </div>
+                <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                  {formatNumber(paymentMethodStats.cash.totalCZK)}{" "}
+                  <span className="text-xs font-semibold text-slate-400">Kč</span>
+                </div>
+                <div className="flex items-center justify-between mt-1 text-[11px] text-slate-400 font-medium">
+                  <span>{paymentMethodStats.cash.count} položek</span>
+                  <span className="font-bold text-emerald-600">{paymentMethodStats.cash.percent}%</span>
+                </div>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden mt-3">
+                <div
+                  className="h-full bg-emerald-500 rounded-full transition-all duration-700 ease-out"
+                  style={{ width: `${Math.max(paymentMethodStats.cash.percent, paymentMethodStats.cash.totalCZK > 0 ? 4 : 0)}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Karta Card */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-blue-600">Karta</span>
+                  <div className="h-7 w-7 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <CreditCard className="h-3.5 w-3.5" />
+                  </div>
+                </div>
+                <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                  {formatNumber(paymentMethodStats.card.totalCZK)}{" "}
+                  <span className="text-xs font-semibold text-slate-400">Kč</span>
+                </div>
+                <div className="flex items-center justify-between mt-1 text-[11px] text-slate-400 font-medium">
+                  <span>{paymentMethodStats.card.count} položek</span>
+                  <span className="font-bold text-blue-600">{paymentMethodStats.card.percent}%</span>
+                </div>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden mt-3">
+                <div
+                  className="h-full bg-blue-500 rounded-full transition-all duration-700 ease-out"
+                  style={{ width: `${Math.max(paymentMethodStats.card.percent, paymentMethodStats.card.totalCZK > 0 ? 4 : 0)}%` }}
+                />
+              </div>
+            </div>
+          </div>
         </section>
 
         {/* SLUŽBY PODLE TYPŮ */}

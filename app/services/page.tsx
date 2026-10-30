@@ -8,6 +8,7 @@ import {
   getServiceCatStyle,
   DEFAULT_SERVICE_CATEGORIES,
   CURRENCIES,
+  PaymentMethod,
 } from "@/lib/types";
 import {
   subscribeToServices,
@@ -45,6 +46,8 @@ import {
   Coins,
   Calendar,
   Settings2,
+  Banknote,
+  CreditCard,
 } from "lucide-react";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -238,7 +241,26 @@ function ServiceCard({
         )}
 
         <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
-          <span className="text-sm font-black text-slate-900">{entry.price.toLocaleString("cs-CZ")} {entry.currency}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-black text-slate-900">{entry.price.toLocaleString("cs-CZ")} {entry.currency}</span>
+            <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+              entry.paymentMethod === "card"
+                ? "bg-blue-50 text-blue-700 border border-blue-200/60"
+                : "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
+            }`}>
+              {entry.paymentMethod === "card" ? (
+                <>
+                  <CreditCard className="h-3 w-3" />
+                  <span>Karta</span>
+                </>
+              ) : (
+                <>
+                  <Banknote className="h-3 w-3" />
+                  <span>Hotovost</span>
+                </>
+              )}
+            </span>
+          </div>
           {isClient && <span className="text-[11px] text-slate-400">{formatDate(entry.createdAt)}</span>}
         </div>
       </div>
@@ -258,6 +280,7 @@ const DEFAULT_FORM = {
   currency: "THB",
   rating: 5,
   note: "",
+  paymentMethod: "cash" as PaymentMethod,
 };
 
 type FormState = typeof DEFAULT_FORM;
@@ -292,7 +315,8 @@ function ServiceModal({
       setForm((f) => ({ ...f, category: categories[0]?.name ?? "" }));
     }
   }, [categories, form.category]);
-  const set = (field: keyof FormState, value: string | number) => setForm((f) => ({ ...f, [field]: value }));
+  const set = <K extends keyof FormState>(field: K, value: FormState[K]) =>
+    setForm((f) => ({ ...f, [field]: value }));
   const handleSubmit = async (e: React.FormEvent) => { e.preventDefault(); await onSubmit(form, initial.id); };
   const isEdit = Boolean(initial.id);
 
@@ -384,6 +408,36 @@ function ServiceModal({
                 </select>
                 <ChevronDown className="h-3.5 w-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
               </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Způsob platby</label>
+            <div className="grid grid-cols-2 gap-2 bg-slate-100/80 p-1 rounded-2xl border border-slate-200/60">
+              <button
+                type="button"
+                onClick={() => set("paymentMethod", "cash")}
+                className={`py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                  form.paymentMethod === "cash"
+                    ? "bg-white text-emerald-700 shadow-sm border border-slate-200/50"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <Banknote className="h-4 w-4 text-emerald-600" />
+                <span>Hotovost</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => set("paymentMethod", "card")}
+                className={`py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                  form.paymentMethod === "card"
+                    ? "bg-white text-blue-700 shadow-sm border border-slate-200/50"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <CreditCard className="h-4 w-4 text-blue-600" />
+                <span>Karta</span>
+              </button>
             </div>
           </div>
 
@@ -496,6 +550,7 @@ export default function ServicesPage() {
         currency: form.currency,
         rating: form.rating,
         note: form.note ? form.note.trim() : "",
+        paymentMethod: form.paymentMethod || "cash",
         createdAt: id
           ? (entries.find((e) => e.id === id)?.createdAt ?? new Date().toISOString())
           : new Date().toISOString(),
@@ -549,6 +604,7 @@ export default function ServicesPage() {
       currency: editingEntry.currency || "THB",
       rating: editingEntry.rating ?? 5,
       note: editingEntry.note ?? "",
+      paymentMethod: editingEntry.paymentMethod || "cash",
     };
   }, [editingEntry]);
 

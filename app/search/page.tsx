@@ -9,7 +9,7 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Expense, Currency, ExpenseCategory, getCategoryDefinition } from "@/lib/types";
+import { Expense, Currency, ExpenseCategory, getCategoryDefinition, PaymentMethod } from "@/lib/types";
 import {
   Search,
   Loader2,
@@ -27,6 +27,8 @@ import {
   ArrowLeft,
   RotateCcw,
   Filter,
+  Banknote,
+  CreditCard,
 } from "lucide-react";
 
 // Pomocná funkce pro formátování čísel v českém formátu
@@ -102,6 +104,7 @@ export default function SearchPage() {
             note: data.note || "",
             merchant: data.merchant || undefined,
             createdAt: data.createdAt || new Date().toISOString(),
+            paymentMethod: data.paymentMethod === "card" ? "card" : "cash",
             location: data.location || undefined,
           };
         });
@@ -383,6 +386,20 @@ export default function SearchPage() {
                         )}
                         <span>•</span>
                         <span>{formatDate(expense.createdAt)}</span>
+                        <span>•</span>
+                        <span className="inline-flex items-center gap-1 font-medium shrink-0">
+                          {expense.paymentMethod === "card" ? (
+                            <>
+                              <CreditCard className="h-3 w-3 text-blue-500" />
+                              <span className="text-blue-600">Karta</span>
+                            </>
+                          ) : (
+                            <>
+                              <Banknote className="h-3 w-3 text-emerald-500" />
+                              <span className="text-emerald-600">Hotovost</span>
+                            </>
+                          )}
+                        </span>
                       </div>
                     </div>
                   </div>

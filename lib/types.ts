@@ -196,6 +196,13 @@ export function getCategoryDefinition(rawCategory?: string): CategoryDefinition 
   return CATEGORY_DEFINITIONS.Různé;
 }
 
+export type PaymentMethod = "cash" | "card";
+
+export const PAYMENT_METHODS: { id: PaymentMethod; label: string; icon: string }[] = [
+  { id: "cash", label: "Hotovost", icon: "💵" },
+  { id: "card", label: "Karta", icon: "💳" },
+];
+
 export const LocationSchema = z.object({
   lat: z.number(),
   lng: z.number(),
@@ -212,6 +219,7 @@ export const ExpenseSchema = z.object({
   merchant: z.string().optional(),
   createdAt: z.string(),
   location: LocationSchema.optional(),
+  paymentMethod: z.enum(["cash", "card"]).optional(),
 });
 
 export type Expense = z.infer<typeof ExpenseSchema>;
@@ -309,4 +317,5 @@ export interface ServiceEntry {
   rating: number;      // SPOKOJENOST (1–5)
   note?: string;       // Poznámka / heslo / kontakt
   createdAt: string;   // ISO Date string
+  paymentMethod?: PaymentMethod; // Způsob platby (hotovost vs. karta)
 }
