@@ -133,9 +133,6 @@ export default function MainWallet() {
   // výhradně na klientovi. Zabraňuje Hydration Error #441.
   const [isClient, setIsClient] = useState<boolean>(false);
 
-  // GPS poloha – automaticky vyžádaná při mountu
-  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
-
   // Stav pro modální okno formuláře (přidání i editace)
   const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
   const [calcOpen, setCalcOpen] = useState<boolean>(false);
@@ -170,20 +167,6 @@ export default function MainWallet() {
       .catch((err) => {
         console.warn("Chyba při načítání kurzů:", err);
       });
-  }, []);
-
-  // Vyžádání GPS polohy při mountu (tiché – nezobrazuje chybu uživateli)
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-      },
-      () => {
-        // Oprávnění zamítnuto nebo poloha nedostupná – ignorujeme tiše
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-    );
   }, []);
 
   // Real-time listener pro kolekci expenses seřazenou podle createdAt sestupně
@@ -467,10 +450,6 @@ export default function MainWallet() {
 
         if (merchant.trim()) {
           expensePayload.merchant = merchant.trim();
-        }
-
-        if (currentLocation) {
-          expensePayload.location = currentLocation;
         }
 
         await addDoc(collection(db, "expenses"), expensePayload);

@@ -38,7 +38,10 @@ import {
   Wrench,
   Banknote,
   CreditCard,
+  ShieldCheck,
+  Download,
 } from "lucide-react";
+import BackupModal from "@/app/components/BackupModal";
 
 export interface CategoryStat {
   name: string;
@@ -80,6 +83,7 @@ export default function StatsView() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [rates, setRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
+  const [backupOpen, setBackupOpen] = useState<boolean>(false);
 
   // Load exchange rates
   useEffect(() => {
@@ -315,10 +319,21 @@ export default function StatsView() {
               <ArrowLeft className="h-3.5 w-3.5" />
               <span>Zpět na výdaje</span>
             </Link>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-semibold border border-emerald-200/60">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Statistiky
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setBackupOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white hover:bg-rose-50 hover:text-rose-600 text-slate-700 text-xs font-bold border border-slate-200/90 shadow-xs transition-all cursor-pointer"
+                title="Záloha a obnova dat"
+              >
+                <ShieldCheck className="h-3.5 w-3.5 text-rose-500" />
+                <span>Záloha dat</span>
+              </button>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-semibold border border-emerald-200/60">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Statistiky
+              </span>
+            </div>
           </div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 mt-1">
             Přehled statistik
@@ -597,7 +612,38 @@ export default function StatsView() {
             })}
           </div>
         </section>
+
+        {/* SPRÁVA A ZÁLOHA DAT */}
+        <section className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-100 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="h-10 w-10 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center shrink-0">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-xs font-black text-slate-900 truncate">Záloha a obnova dat</h3>
+              <p className="text-[11px] text-slate-400 truncate mt-0.5">Export do JSON/CSV a obnova databáze</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setBackupOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 active:scale-[0.98] text-white text-xs font-bold shadow-md shadow-rose-500/20 flex items-center gap-1.5 transition-all shrink-0 cursor-pointer"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>Záloha dat</span>
+          </button>
+        </section>
       </main>
+
+      {/* MODÁLNÍ OKNO ZÁLOHY A OBNOVY DAT */}
+      {backupOpen && (
+        <BackupModal
+          isOpen={backupOpen}
+          onClose={() => setBackupOpen(false)}
+          expenses={expenses}
+          services={services}
+        />
+      )}
 
       {/* SPODNÍ NAVIGAČNÍ LIŠTA */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-lg">
