@@ -21,6 +21,9 @@ import {
   getCachedServiceCategories,
 } from "@/lib/serviceCategories";
 import ManageCategoriesModal from "@/app/services/components/ManageCategoriesModal";
+import ProtectedServicesGate, {
+  useServicesSecurity,
+} from "@/app/services/components/ProtectedServicesGate";
 import {
   fetchExchangeRates,
   convertToCZK,
@@ -52,6 +55,7 @@ import {
   Settings2,
   Banknote,
   CreditCard,
+  Lock,
 } from "lucide-react";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -468,9 +472,10 @@ function ServiceModal({
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Main Page Content ────────────────────────────────────────────────────────
 
-export default function ServicesPage() {
+function ServicesContent() {
+  const { lock } = useServicesSecurity();
   const [entries, setEntries] = useState<ServiceEntry[]>([]);
   const [categories, setCategories] = useState<ServiceCategory[]>(() => getCachedServiceCategories());
   const [manageCategoriesOpen, setManageCategoriesOpen] = useState(false);
@@ -695,11 +700,25 @@ export default function ServicesPage() {
               {isClient ? `${entries.length} ${pluralZaznamu(entries.length)}` : "Načítám…"}
             </p>
           </div>
-          <button type="button" onClick={openCreate}
-            className="h-10 w-10 rounded-full bg-gradient-to-br from-rose-500 to-pink-500 text-white shadow-lg shadow-rose-400/30 flex items-center justify-center transition-all hover:shadow-rose-400/50 active:scale-95 cursor-pointer"
-            aria-label="Přidat záznam">
-            <Plus className="h-5 w-5 stroke-[2.5]" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={lock}
+              className="h-10 w-10 rounded-full bg-white border border-slate-200/90 text-slate-500 hover:text-rose-600 hover:border-rose-200 shadow-xs flex items-center justify-center transition-all active:scale-95 cursor-pointer"
+              title="Zamknout sekci služeb"
+              aria-label="Zamknout sekci služeb"
+            >
+              <Lock className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={openCreate}
+              className="h-10 w-10 rounded-full bg-gradient-to-br from-rose-500 to-pink-500 text-white shadow-lg shadow-rose-400/30 flex items-center justify-center transition-all hover:shadow-rose-400/50 active:scale-95 cursor-pointer"
+              aria-label="Přidat záznam"
+            >
+              <Plus className="h-5 w-5 stroke-[2.5]" />
+            </button>
+          </div>
         </header>
 
         {/* SUMMARY KARTY – Total a Dnes v CZK */}
@@ -842,5 +861,13 @@ export default function ServicesPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function ServicesPage() {
+  return (
+    <ProtectedServicesGate>
+      <ServicesContent />
+    </ProtectedServicesGate>
   );
 }
