@@ -750,25 +750,28 @@ export default function ServicesPage() {
         </div>
 
         {entries.length > 0 && (
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 py-1">
-            {/* Vše */}
-            <button type="button" onClick={() => setActiveFilter("Vse")}
-              className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${activeFilter === "Vse" ? "bg-rose-500 text-white border-rose-500 shadow-md shadow-rose-400/30" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"}`}>
-              Vše
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${activeFilter === "Vse" ? "bg-white/25 text-white" : "bg-slate-100 text-slate-500"}`}>{entries.length}</span>
-            </button>
-            {categories.filter((cat) => (counts[cat.name] ?? 0) > 0).map((cat) => {
-              const active = activeFilter === cat.name;
-              const count = counts[cat.name] ?? 0;
-              return (
-                <button key={cat.id} type="button" onClick={() => setActiveFilter(cat.name)}
-                  className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${active ? "bg-rose-500 text-white border-rose-500 shadow-md shadow-rose-400/30" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"}`}>
-                  <span>{cat.icon}</span>
-                  {cat.name}
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${active ? "bg-white/25 text-white" : "bg-slate-100 text-slate-500"}`}>{count}</span>
-                </button>
-              );
-            })}
+          <div className="relative">
+            <div className="flex flex-nowrap items-center gap-2 overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none] no-scrollbar -mx-4 px-4 py-1 pb-1.5">
+              {/* Vše */}
+              <button type="button" onClick={() => setActiveFilter("Vse")}
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${activeFilter === "Vse" ? "bg-rose-500 text-white border-rose-500 shadow-md shadow-rose-400/30" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"}`}>
+                Vše
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${activeFilter === "Vse" ? "bg-white/25 text-white" : "bg-slate-100 text-slate-500"}`}>{entries.length}</span>
+              </button>
+              {categories.filter((cat) => (counts[cat.name] ?? 0) > 0).map((cat) => {
+                const active = activeFilter === cat.name;
+                const count = counts[cat.name] ?? 0;
+                return (
+                  <button key={cat.id} type="button" onClick={() => setActiveFilter(cat.name)}
+                    className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${active ? "bg-rose-500 text-white border-rose-500 shadow-md shadow-rose-400/30" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"}`}>
+                    <span>{cat.icon}</span>
+                    {cat.name}
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${active ? "bg-white/25 text-white" : "bg-slate-100 text-slate-500"}`}>{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-[#F8F6F4] to-transparent pointer-events-none z-10" />
           </div>
         )}
 

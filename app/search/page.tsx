@@ -241,28 +241,31 @@ export default function SearchPage() {
           </div>
 
           {/* RYCHLÉ FILTRY */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 no-scrollbar">
-            <div className="text-[11px] font-semibold text-slate-400 shrink-0 mr-1 flex items-center gap-1">
-              <Filter className="h-3 w-3" />
-              <span>Rychlé filtry:</span>
+          <div className="relative">
+            <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none] no-scrollbar">
+              <div className="text-[11px] font-semibold text-slate-400 shrink-0 mr-1 flex items-center gap-1">
+                <Filter className="h-3 w-3" />
+                <span>Rychlé filtry:</span>
+              </div>
+              {QUICK_FILTERS.map((filter) => {
+                const isActive = selectedQuickFilter === filter.id;
+                return (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() => toggleQuickFilter(filter.id)}
+                    className={`text-xs py-1.5 px-3 rounded-full shrink-0 border transition-all cursor-pointer ${
+                      isActive
+                        ? "bg-rose-50 border-rose-300 text-rose-700 font-bold shadow-xs scale-102"
+                        : "bg-white border-slate-200/80 text-slate-600 hover:border-slate-300 font-medium"
+                    }`}
+                  >
+                    {filter.label}
+                  </button>
+                );
+              })}
             </div>
-            {QUICK_FILTERS.map((filter) => {
-              const isActive = selectedQuickFilter === filter.id;
-              return (
-                <button
-                  key={filter.id}
-                  type="button"
-                  onClick={() => toggleQuickFilter(filter.id)}
-                  className={`text-xs py-1.5 px-3 rounded-full shrink-0 border transition-all cursor-pointer ${
-                    isActive
-                      ? "bg-rose-50 border-rose-300 text-rose-700 font-bold shadow-xs scale-102"
-                      : "bg-white border-slate-200/80 text-slate-600 hover:border-slate-300 font-medium"
-                  }`}
-                >
-                  {filter.label}
-                </button>
-              );
-            })}
+            <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-[#F8F6F4] to-transparent pointer-events-none z-10" />
           </div>
         </form>
 

@@ -686,19 +686,22 @@ export default function MainWallet() {
       <div className="fixed bottom-0 left-0 right-0 z-50 pointer-events-none">
         {/* Lišta s rychlými šablonami (Quick Presets) */}
         <div className="max-w-md mx-auto px-4 pb-2 pointer-events-auto sm:max-w-lg">
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-            {QUICK_PRESETS.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => handleApplyPreset(preset)}
-                className="shrink-0 px-3.5 py-1.5 rounded-full bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-md shadow-slate-200/50 hover:bg-rose-50 hover:border-rose-300 hover:text-rose-600 text-xs font-bold text-slate-700 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-                title={`Rychle přidat: ${preset.label}`}
-              >
-                <span className="text-sm">{preset.emoji}</span>
-                <span>{preset.label}</span>
-              </button>
-            ))}
+          <div className="relative">
+            <div className="flex flex-nowrap items-center gap-2 overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none] no-scrollbar py-1 pb-1">
+              {QUICK_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => handleApplyPreset(preset)}
+                  className="shrink-0 px-3.5 py-1.5 rounded-full bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-md shadow-slate-200/50 hover:bg-rose-50 hover:border-rose-300 hover:text-rose-600 text-xs font-bold text-slate-700 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                  title={`Rychle přidat: ${preset.label}`}
+                >
+                  <span className="text-sm">{preset.emoji}</span>
+                  <span>{preset.label}</span>
+                </button>
+              ))}
+            </div>
+            <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-slate-50 to-transparent pointer-events-none z-10" />
           </div>
         </div>
 
@@ -792,26 +795,29 @@ export default function MainWallet() {
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
                   Rychlé šablony
                 </label>
-                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-                  {QUICK_PRESETS.map((preset) => {
-                    const isPresetActive =
-                      manualCategory === preset.category && note === preset.defaultNote;
-                    return (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => handleApplyPreset(preset)}
-                        className={`shrink-0 px-2.5 py-1 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer ${
-                          isPresetActive
-                            ? "bg-rose-50 border-rose-300 text-rose-700 shadow-xs ring-1 ring-rose-300"
-                            : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
-                        }`}
-                      >
-                        <span className="text-sm">{preset.emoji}</span>
-                        <span>{preset.label}</span>
-                      </button>
-                    );
-                  })}
+                <div className="relative">
+                  <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none] no-scrollbar py-0.5 pb-1">
+                    {QUICK_PRESETS.map((preset) => {
+                      const isPresetActive =
+                        manualCategory === preset.category && note === preset.defaultNote;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => handleApplyPreset(preset)}
+                          className={`shrink-0 px-2.5 py-1 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer ${
+                            isPresetActive
+                              ? "bg-rose-50 border-rose-300 text-rose-700 shadow-xs ring-1 ring-rose-300"
+                              : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          <span className="text-sm">{preset.emoji}</span>
+                          <span>{preset.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-white to-transparent pointer-events-none z-10" />
                 </div>
               </div>
 
