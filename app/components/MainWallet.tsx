@@ -21,7 +21,13 @@ import {
   CATEGORY_LIST,
   getCategoryDefinition,
   PaymentMethod,
+  CashWithdrawal,
+  ServiceEntry,
 } from "@/lib/types";
+import { subscribeToCashWithdrawals } from "@/lib/cashWithdrawalsStore";
+import { subscribeToServices } from "@/lib/servicesStore";
+import CashWalletCard from "@/app/components/CashWalletCard";
+import CashWithdrawalsModal from "@/app/components/CashWithdrawalsModal";
 import {
   fetchExchangeRates,
   convertToCZK,
@@ -144,6 +150,13 @@ export default function MainWallet() {
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const amountInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Stav pro evidenci výběrů z ATM a směn (Hotovostní rozpočet)
+  const [withdrawals, setWithdrawals] = useState<CashWithdrawal[]>([]);
+  const [services, setServices] = useState<ServiceEntry[]>([]);
+  const [isCashModalOpen, setIsCashModalOpen] = useState<boolean>(false);
+  const [cashModalInitialTab, setCashModalInitialTab] = useState<"history" | "new">("history");
+  const [cashModalInitialCurrency, setCashModalInitialCurrency] = useState<string>("THB");
+
   // Stavové proměnné pro formulář
   const [amountOriginal, setAmountOriginal] = useState<string>("");
   const [currency, setCurrency] = useState<Currency>("VND");
@@ -208,6 +221,23 @@ export default function MainWallet() {
     );
 
     return () => unsubscribe();
+  }, []);
+
+  // Real-time listener pro cash_withdrawals a services
+  useEffect(() => {
+    const unsubWithdrawals = subscribeToCashWithdrawals(
+      (data) => setWithdrawals(data),
+      (err) => console.error("Chyba při načítání výběrů:", err)
+    );
+    const unsubServices = subscribeToServices(
+      (data) => setServices(data),
+      (err) => console.error("Chyba při načítání služeb:", err)
+    );
+
+    return () => {
+      unsubWithdrawals();
+      unsubServices();
+    };
   }, []);
 
   // Výpočet Total (celkový součet v CZK)
@@ -542,6 +572,18 @@ export default function MainWallet() {
             </div>
           </div>
         </div>
+
+        {/* KOMPAKTNÍ WIDGET: HOTOVOST V PENĚŽENCE */}
+        <CashWalletCard
+          withdrawals={withdrawals}
+          expenses={expenses}
+          services={services}
+          onOpenModal={(tab = "history", cur = "THB") => {
+            setCashModalInitialTab(tab);
+            setCashModalInitialCurrency(cur);
+            setIsCashModalOpen(true);
+          }}
+        />
 
         {/* ČISTÝ FEED VÝDAJŮ SESKUPENÝCH PODLE DNŮ */}
         <div className="flex flex-col gap-4">
@@ -1032,6 +1074,19 @@ export default function MainWallet() {
         <CurrencyCalculatorModal
           defaultFrom={currency}
           onClose={() => setCalcOpen(false)}
+        />
+      )}
+
+      {/* Modální okno hotovosti a výběrů z ATM / směn */}
+      {isCashModalOpen && (
+        <CashWithdrawalsModal
+          isOpen={isCashModalOpen}
+          onClose={() => setIsCashModalOpen(false)}
+          withdrawals={withdrawals}
+          expenses={expenses}
+          services={services}
+          initialCurrency={cashModalInitialCurrency}
+          initialTab={cashModalInitialTab}
         />
       )}
     </div>

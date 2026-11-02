@@ -9,7 +9,10 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Expense, Currency, ExpenseCategory, getCategoryDefinition, ServiceEntry } from "@/lib/types";
+import { Expense, Currency, ExpenseCategory, getCategoryDefinition, ServiceEntry, CashWithdrawal } from "@/lib/types";
+import { subscribeToCashWithdrawals } from "@/lib/cashWithdrawalsStore";
+import CashWalletCard from "@/app/components/CashWalletCard";
+import CashWithdrawalsModal from "@/app/components/CashWithdrawalsModal";
 import {
   fetchExchangeRates,
   convertToCZK,
@@ -89,6 +92,10 @@ export default function StatsView() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [rates, setRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
   const [backupOpen, setBackupOpen] = useState<boolean>(false);
+  const [withdrawals, setWithdrawals] = useState<CashWithdrawal[]>([]);
+  const [isCashModalOpen, setIsCashModalOpen] = useState<boolean>(false);
+  const [cashModalInitialTab, setCashModalInitialTab] = useState<"history" | "new">("history");
+  const [cashModalInitialCurrency, setCashModalInitialCurrency] = useState<string>("THB");
 
   // Load exchange rates
   useEffect(() => {
@@ -102,6 +109,15 @@ export default function StatsView() {
     const unsub = subscribeToServices(
       (data) => setServices(data),
       (err) => console.error("services listener (stats):", err)
+    );
+    return () => unsub();
+  }, []);
+
+  // Load cash withdrawals via reactive listener
+  useEffect(() => {
+    const unsub = subscribeToCashWithdrawals(
+      (data) => setWithdrawals(data),
+      (err) => console.error("cash_withdrawals listener (stats):", err)
     );
     return () => unsub();
   }, []);
@@ -398,6 +414,18 @@ export default function StatsView() {
           </div>
         </div>
 
+        {/* HOTOVOSTNÍ ROZPOČET A PENĚŽENKA */}
+        <CashWalletCard
+          withdrawals={withdrawals}
+          expenses={expenses}
+          services={services}
+          onOpenModal={(tab = "history", cur = "THB") => {
+            setCashModalInitialTab(tab);
+            setCashModalInitialCurrency(cur);
+            setIsCashModalOpen(true);
+          }}
+        />
+
         {/* PŘEHLED PODLE KATEGORIÍ */}
         <section className="flex flex-col gap-2.5">
           <div className="flex items-center justify-between px-1">
@@ -643,6 +671,20 @@ export default function StatsView() {
           onClose={() => setBackupOpen(false)}
           expenses={expenses}
           services={services}
+          cashWithdrawals={withdrawals}
+        />
+      )}
+
+      {/* MODÁLNÍ OKNO HOTOVOSTNÍHO ROZPOČTU */}
+      {isCashModalOpen && (
+        <CashWithdrawalsModal
+          isOpen={isCashModalOpen}
+          onClose={() => setIsCashModalOpen(false)}
+          withdrawals={withdrawals}
+          expenses={expenses}
+          services={services}
+          initialCurrency={cashModalInitialCurrency}
+          initialTab={cashModalInitialTab}
         />
       )}
 

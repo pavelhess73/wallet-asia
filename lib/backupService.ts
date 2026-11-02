@@ -1,6 +1,6 @@
 import { Firestore, doc, setDoc, addDoc, collection } from "firebase/firestore";
 import { db as defaultDb } from "@/lib/firebase";
-import { Expense, ServiceEntry } from "@/lib/types";
+import { Expense, ServiceEntry, CashWithdrawal } from "@/lib/types";
 import { convertToCZK } from "@/lib/currency";
 
 /**
@@ -58,22 +58,29 @@ export interface BackupPayload {
   exportedAt: string;
   expenses: Expense[];
   services: ServiceEntry[];
+  cashWithdrawals?: CashWithdrawal[];
 }
 
 export interface RestoreResult {
   expensesRestored: number;
   servicesRestored: number;
+  cashWithdrawalsRestored?: number;
 }
 
 /**
- * Exportuje kompletní zálohu výdajů i služeb do souboru .json
+ * Exportuje kompletní zálohu výdajů, služeb a výběrů hotovosti do souboru .json
  */
-export function exportData(expenses: Expense[], services: ServiceEntry[]): void {
+export function exportData(
+  expenses: Expense[],
+  services: ServiceEntry[],
+  cashWithdrawals: CashWithdrawal[] = []
+): void {
   const backup: BackupPayload = {
     version: 1,
     exportedAt: new Date().toISOString(),
     expenses,
     services,
+    cashWithdrawals,
   };
 
   const filename = `wallet-asia-backup-${formatDateYMD()}.json`;
@@ -189,13 +196,15 @@ export async function restoreFromJSON(
   const payload = parsed as Record<string, unknown>;
   const rawExpenses: unknown[] = Array.isArray(payload.expenses) ? payload.expenses : [];
   const rawServices: unknown[] = Array.isArray(payload.services) ? payload.services : [];
+  const rawWithdrawals: unknown[] = Array.isArray(payload.cashWithdrawals) ? payload.cashWithdrawals : [];
 
-  if (rawExpenses.length === 0 && rawServices.length === 0) {
-    throw new Error("Soubor neobsahuje žádná data výdajů ani služeb k obnovení.");
+  if (rawExpenses.length === 0 && rawServices.length === 0 && rawWithdrawals.length === 0) {
+    throw new Error("Soubor neobsahuje žádná data výdajů, služeb ani výběrů k obnovení.");
   }
 
   let expensesRestored = 0;
   let servicesRestored = 0;
+  let cashWithdrawalsRestored = 0;
 
   // 1. Obnova výdajů
   for (const expItem of rawExpenses) {
@@ -253,8 +262,38 @@ export async function restoreFromJSON(
     servicesRestored++;
   }
 
+  // 3. Obnova výběrů z ATM a směn
+  for (const wItem of rawWithdrawals) {
+    if (!wItem || typeof wItem !== "object") continue;
+    const w = wItem as Record<string, unknown>;
+
+    const cleanWithdrawal = sanitizeFirestoreData({
+      date: (w.date || new Date().toISOString().split("T")[0]).toString(),
+      type: w.type === "exchange" ? "exchange" : "atm",
+      targetAmount: Number(w.targetAmount) || 0,
+      targetCurrency: (w.targetCurrency || "THB").toString().toUpperCase().trim(),
+      sourceAmount: w.sourceAmount !== undefined && w.sourceAmount !== null && !isNaN(Number(w.sourceAmount))
+        ? Number(w.sourceAmount)
+        : undefined,
+      sourceCurrency: w.sourceCurrency ? w.sourceCurrency.toString().toUpperCase().trim() : undefined,
+      atmFee: w.atmFee !== undefined && w.atmFee !== null && !isNaN(Number(w.atmFee))
+        ? Number(w.atmFee)
+        : undefined,
+      note: w.note ? w.note.toString().trim() : "",
+      createdAt: (w.createdAt || new Date().toISOString()).toString(),
+    });
+
+    if (w.id && typeof w.id === "string") {
+      await setDoc(doc(targetDb, "cash_withdrawals", w.id), cleanWithdrawal, { merge: true });
+    } else {
+      await addDoc(collection(targetDb, "cash_withdrawals"), cleanWithdrawal);
+    }
+    cashWithdrawalsRestored++;
+  }
+
   return {
     expensesRestored,
     servicesRestored,
+    cashWithdrawalsRestored,
   };
 }

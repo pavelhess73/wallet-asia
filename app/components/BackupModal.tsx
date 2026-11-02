@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Expense, ServiceEntry } from "@/lib/types";
+import { Expense, ServiceEntry, CashWithdrawal } from "@/lib/types";
 import { exportData, exportCSV, restoreFromJSON, RestoreResult } from "@/lib/backupService";
 import {
   X,
@@ -20,6 +20,7 @@ interface BackupModalProps {
   onClose: () => void;
   expenses: Expense[];
   services: ServiceEntry[];
+  cashWithdrawals?: CashWithdrawal[];
   onRestoreSuccess?: (result: RestoreResult) => void;
 }
 
@@ -28,6 +29,7 @@ export default function BackupModal({
   onClose,
   expenses,
   services,
+  cashWithdrawals = [],
   onRestoreSuccess,
 }: BackupModalProps) {
   const [isRestoring, setIsRestoring] = useState(false);
@@ -40,7 +42,7 @@ export default function BackupModal({
   const handleExportJSON = () => {
     try {
       setErrorMsg(null);
-      exportData(expenses, services);
+      exportData(expenses, services, cashWithdrawals);
     } catch (err: unknown) {
       console.error(err);
       setErrorMsg("Nepodařilo se vytvořit JSON zálohu.");

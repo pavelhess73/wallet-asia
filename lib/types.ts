@@ -318,3 +318,21 @@ export interface ServiceEntry {
   createdAt: string;   // ISO Date string
   paymentMethod?: PaymentMethod; // Způsob platby (hotovost vs. karta)
 }
+
+// ─────────────────────────────────────────────
+//  Modul Hotovostní Rozpočet (Cash Withdrawals & ATM)
+// ─────────────────────────────────────────────
+
+export interface CashWithdrawal {
+  id?: string;
+  date: string; // ISO nebo YYYY-MM-DD
+  type: 'atm' | 'exchange'; // Výběr z ATM vs. Směnárna
+  targetAmount: number; // Získaná hotovost (např. 10000 THB)
+  targetCurrency: string; // THB, VND, LAK...
+  sourceAmount?: number; // Kolik to stálo (např. 6800 CZK nebo 250 EUR)
+  sourceCurrency?: string; // CZK, EUR...
+  atmFee?: number; // Poplatek bankomatu v lokální měně (např. 220 THB v Thajsku)
+  note?: string; // Poznámka (např. Bangkok Bank, letiště...)
+  createdAt: any;
+}
+
