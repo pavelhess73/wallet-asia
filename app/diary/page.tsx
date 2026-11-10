@@ -15,9 +15,16 @@ import {
   addDiaryEntry,
   updateDiaryEntry,
   deleteDiaryEntry,
+  batchUpdateDiaryOrder,
 } from "@/lib/diaryService";
 import { formatCZK, formatCurrency } from "@/lib/formatters";
 import { compressImage } from "@/lib/imageUtils";
+import {
+  DragDropContext,
+  Droppable,
+  Draggable,
+  DropResult,
+} from "@hello-pangea/dnd";
 import {
   ArrowLeft,
   Plus,
@@ -34,12 +41,12 @@ import {
   Coins,
   CheckCircle2,
   AlertCircle,
-  Calendar,
   X,
   Loader2,
   ArrowUpDown,
   Camera,
   Maximize2,
+  GripVertical,
 } from "lucide-react";
 
 // ─── Pomocná funkce pro bezpečné formátování data (bez posunu časových pásem) ─
@@ -233,6 +240,7 @@ function DiaryEntryModal({
       photoBase64: photoBase64 || undefined,
       expenseId: initial?.expenseId,
       cost: initial?.cost,
+      order: initial?.order,
       createdAt: initial?.createdAt || new Date().toISOString(),
     };
 
@@ -532,17 +540,21 @@ function DiaryEntryModal({
   );
 }
 
-// ─── Položka na časové ose ──────────────────────────────────────────────────
+// ─── Položka na časové ose (Draggable) ────────────────────────────────────────
 function TimelineCard({
   entry,
   onEdit,
   onDelete,
   onPhotoClick,
+  dragHandleProps,
+  isDragging,
 }: {
   entry: DiaryEntry;
   onEdit: () => void;
   onDelete: () => void;
   onPhotoClick: (base64: string) => void;
+  dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
+  isDragging?: boolean;
 }) {
   const catConfig = DIARY_CATEGORY_CONFIGS[entry.category] || DIARY_CATEGORY_CONFIGS.note;
 
@@ -559,8 +571,14 @@ function TimelineCard({
       </div>
 
       {/* Tělo karty */}
-      <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 hover:border-slate-200 transition-all flex flex-col gap-2">
-        {/* Horní řádek karty: štítek kategorie, čas, lokace a akční tlačítka */}
+      <div
+        className={`bg-white rounded-2xl p-4 shadow-sm border transition-all flex flex-col gap-2 ${
+          isDragging
+            ? "border-rose-300 shadow-lg shadow-rose-500/15 scale-[1.02] rotate-[0.5deg]"
+            : "border-slate-100 hover:border-slate-200"
+        }`}
+      >
+        {/* Horní řádek karty: štítek kategorie, čas, lokace, drag handle a akční tlačítka */}
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 flex-wrap">
             {/* Kategorie */}
@@ -588,8 +606,17 @@ function TimelineCard({
             )}
           </div>
 
-          {/* Tlačítka pro úpravu a smazání */}
-          <div className="flex items-center gap-1">
+          {/* Pravá strana: Drag handle + akční tlačítka */}
+          <div className="flex items-center gap-0.5">
+            {/* Drag Handle — úchyt pro přetažení */}
+            <div
+              {...dragHandleProps}
+              className="p-1.5 rounded-lg text-slate-300 hover:text-slate-500 hover:bg-slate-100 transition-colors cursor-grab active:cursor-grabbing touch-none"
+              title="Přetáhněte pro změnu pořadí"
+              aria-label="Přetáhnout záznam"
+            >
+              <GripVertical className="h-4 w-4" />
+            </div>
             <button
               type="button"
               onClick={onEdit}
@@ -682,8 +709,119 @@ function TimelineCard({
   );
 }
 
+// ─── Skupina jednoho dne s Droppable zónou ────────────────────────────────────
+interface DayGroup {
+  date: string;
+  dayNumber: number;
+  location: string;
+  entries: DiaryEntry[];
+  expensesSumCZK: number;
+  expensesCount: number;
+}
+
+function DaySection({
+  dayGroup,
+  onEdit,
+  onDelete,
+  onPhotoClick,
+}: {
+  dayGroup: DayGroup;
+  onEdit: (entry: DiaryEntry) => void;
+  onDelete: (id?: string) => void;
+  onPhotoClick: (img: string) => void;
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      {/* Hlavička dne: "Den X: {location} — {datum}" */}
+      <div className="bg-slate-900 text-white rounded-2xl px-4 py-3 shadow-sm flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="h-2 w-2 rounded-full bg-rose-400 shrink-0" />
+          <h2 className="text-xs sm:text-sm font-bold tracking-tight truncate">
+            Den {dayGroup.dayNumber}
+            {dayGroup.location ? `: ${dayGroup.location}` : ""} —{" "}
+            {formatDiaryDateCzech(dayGroup.date)}
+          </h2>
+        </div>
+        <span className="text-[11px] text-slate-400 font-medium shrink-0">
+          {dayGroup.entries.length}{" "}
+          {dayGroup.entries.length === 1
+            ? "položka"
+            : dayGroup.entries.length < 5
+            ? "položky"
+            : "položek"}
+        </span>
+      </div>
+
+      {/* Kompaktní karta: "Denní souhrn výdajů: X Kč" */}
+      <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-white border border-slate-200/80 shadow-2xs text-xs">
+        <div className="flex items-center gap-2 text-slate-600 font-medium">
+          <span className="p-1 rounded-md bg-rose-50 text-rose-600">
+            <Coins className="h-3.5 w-3.5" />
+          </span>
+          <span>Denní souhrn výdajů:</span>
+        </div>
+        <div className="font-bold text-slate-900 flex items-center gap-1.5">
+          <span>{formatCZK(dayGroup.expensesSumCZK)}</span>
+          {dayGroup.expensesCount > 0 && (
+            <span className="text-[10px] font-normal text-slate-400">
+              ({dayGroup.expensesCount}{" "}
+              {dayGroup.expensesCount === 1
+                ? "výdaj"
+                : dayGroup.expensesCount < 5
+                ? "výdaje"
+                : "výdajů"}
+              )
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Svislá časová osa s Droppable zónou pro D&D */}
+      <Droppable droppableId={dayGroup.date}>
+        {(provided, snapshot) => (
+          <div
+            ref={provided.innerRef}
+            {...provided.droppableProps}
+            className={`relative pl-6 sm:pl-8 before:absolute before:left-[9px] sm:before:left-[9px] before:top-4 before:bottom-4 before:w-0.5 before:transition-colors flex flex-col gap-3 pt-1 rounded-2xl transition-colors ${
+              snapshot.isDraggingOver
+                ? "before:bg-rose-300 bg-rose-50/30"
+                : "before:bg-slate-200"
+            }`}
+          >
+            {dayGroup.entries.map((entry, index) => (
+              <Draggable
+                key={entry.id || `${entry.date}-${entry.title}-${index}`}
+                draggableId={entry.id || `fallback-${entry.date}-${index}`}
+                index={index}
+              >
+                {(dragProvided, dragSnapshot) => (
+                  <div
+                    ref={dragProvided.innerRef}
+                    {...dragProvided.draggableProps}
+                  >
+                    <TimelineCard
+                      entry={entry}
+                      onEdit={() => onEdit(entry)}
+                      onDelete={() => onDelete(entry.id)}
+                      onPhotoClick={onPhotoClick}
+                      dragHandleProps={dragProvided.dragHandleProps ?? undefined}
+                      isDragging={dragSnapshot.isDragging}
+                    />
+                  </div>
+                )}
+              </Draggable>
+            ))}
+            {provided.placeholder}
+          </div>
+        )}
+      </Droppable>
+    </section>
+  );
+}
+
 // ─── HLAVNÍ STRÁNKA CESTOVNÍHO DENÍKU ──────────────────────────────────────
 export default function DiaryPage() {
+  // Lokální stav seskupených dnů — umožňuje optimistické D&D přeuspořádání bez čekání na Firestore
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -764,8 +902,8 @@ export default function DiaryPage() {
     return map;
   }, [expenses]);
 
-  // Seskupení záznamů deníku podle dnů a výpočet hlavičky "Den X: {location} — {datum}"
-  const groupedDays = useMemo(() => {
+  // Seskupení záznamů deníku podle dnů — respektuje order pro D&D pořadí
+  const groupedDays = useMemo<DayGroup[]>(() => {
     // 1. Najdeme unikátní seřazená data
     const dateMap = new Map<string, DiaryEntry[]>();
     for (const entry of entries) {
@@ -777,11 +915,17 @@ export default function DiaryPage() {
     // Seřadíme data vzestupně pro správné očíslování Den 1, Den 2...
     const sortedDatesAsc = Array.from(dateMap.keys()).sort((a, b) => a.localeCompare(b));
 
-    const dayGroups = sortedDatesAsc.map((date, index) => {
+    const dayGroups: DayGroup[] = sortedDatesAsc.map((date, index) => {
       const dayEntries = dateMap.get(date) || [];
 
-      // Seřazení záznamů v rámci dne podle času
+      // Seřazení záznamů v rámci dne: primárně order (D&D), fallback čas/createdAt
       dayEntries.sort((a, b) => {
+        const aHasOrder = a.order !== undefined && a.order !== null;
+        const bHasOrder = b.order !== undefined && b.order !== null;
+        if (aHasOrder && bHasOrder) return (a.order as number) - (b.order as number);
+        if (aHasOrder && !bHasOrder) return -1;
+        if (!aHasOrder && bHasOrder) return 1;
+        // Fallback na čas
         const timeA = a.time || "";
         const timeB = b.time || "";
         if (timeA && timeB) return timeA.localeCompare(timeB);
@@ -827,6 +971,57 @@ export default function DiaryPage() {
     return groupedDays.reduce((acc, g) => acc + g.expensesSumCZK, 0);
   }, [groupedDays]);
 
+  // ─── DRAG & DROP: onDragEnd handler ───────────────────────────────────────
+  const handleDragEnd = async (result: DropResult) => {
+    const { destination, source, draggableId } = result;
+
+    // Přesunutí zrušeno nebo na stejné místo
+    if (!destination) return;
+    if (
+      destination.droppableId === source.droppableId &&
+      destination.index === source.index
+    ) return;
+
+    // Podporujeme pouze drag v rámci jednoho dne
+    if (destination.droppableId !== source.droppableId) return;
+
+    const dateKey = destination.droppableId;
+
+    // Najdeme záznamy tohoto dne (v aktuálním pořadí)
+    const dayGroup = groupedDays.find((g) => g.date === dateKey);
+    if (!dayGroup) return;
+
+    // Optimistické přeuspořádání v lokálním stavu
+    const reordered = Array.from(dayGroup.entries);
+    const [moved] = reordered.splice(source.index, 1);
+    reordered.splice(destination.index, 0, moved);
+
+    // Přepočítáme order indexy (0, 1, 2, ...)
+    const updatesForBatch: Array<{ id: string; order: number }> = [];
+    const updatedEntries = reordered.map((entry, idx) => {
+      if (entry.id && entry.order !== idx) {
+        updatesForBatch.push({ id: entry.id, order: idx });
+      }
+      return { ...entry, order: idx };
+    });
+
+    // Optimisticky aktualizujeme lokální stav entries
+    setEntries((prev) => {
+      const otherEntries = prev.filter((e) => e.date !== dateKey);
+      return [...otherEntries, ...updatedEntries];
+    });
+
+    // Uložíme do Firestore (WriteBatch)
+    if (updatesForBatch.length > 0) {
+      try {
+        await batchUpdateDiaryOrder(updatesForBatch);
+      } catch (err) {
+        console.error("Chyba při ukládání pořadí:", err);
+        showToast("❌ Pořadí se nepodařilo uložit, obnovte stránku");
+      }
+    }
+  };
+
   // CRUD akce
   const openCreate = () => {
     setEditingEntry(null);
@@ -859,7 +1054,10 @@ export default function DiaryPage() {
         await updateDiaryEntry(editingEntry.id, data);
         showToast("Záznam byl upraven");
       } else {
-        await addDiaryEntry(data);
+        // Nový záznam dostane order = počet existujících záznamů v daném dni
+        const dayEntries = entries.filter((e) => e.date === data.date);
+        const newOrder = dayEntries.length;
+        await addDiaryEntry({ ...data, order: newOrder });
         showToast("Nový záznam byl přidán do deníku");
       }
       setModalOpen(false);
@@ -1001,69 +1199,20 @@ export default function DiaryPage() {
             </button>
           </div>
         ) : (
-          /* Časová osa seskupená podle dnů */
-          <div className="flex flex-col gap-6">
-            {groupedDays.map((dayGroup) => (
-              <section key={dayGroup.date} className="flex flex-col gap-3">
-                {/* Hlavička dne: "Den X: {location} — {datum}" */}
-                <div className="bg-slate-900 text-white rounded-2xl px-4 py-3 shadow-sm flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="h-2 w-2 rounded-full bg-rose-400 shrink-0" />
-                    <h2 className="text-xs sm:text-sm font-bold tracking-tight truncate">
-                      Den {dayGroup.dayNumber}
-                      {dayGroup.location ? `: ${dayGroup.location}` : ""} —{" "}
-                      {formatDiaryDateCzech(dayGroup.date)}
-                    </h2>
-                  </div>
-                  <span className="text-[11px] text-slate-400 font-medium shrink-0">
-                    {dayGroup.entries.length}{" "}
-                    {dayGroup.entries.length === 1
-                      ? "položka"
-                      : dayGroup.entries.length < 5
-                      ? "položky"
-                      : "položek"}
-                  </span>
-                </div>
-
-                {/* Kompaktní karta: "Denní souhrn výdajů: X Kč" */}
-                <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-white border border-slate-200/80 shadow-2xs text-xs">
-                  <div className="flex items-center gap-2 text-slate-600 font-medium">
-                    <span className="p-1 rounded-md bg-rose-50 text-rose-600">
-                      <Coins className="h-3.5 w-3.5" />
-                    </span>
-                    <span>Denní souhrn výdajů:</span>
-                  </div>
-                  <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                    <span>{formatCZK(dayGroup.expensesSumCZK)}</span>
-                    {dayGroup.expensesCount > 0 && (
-                      <span className="text-[10px] font-normal text-slate-400">
-                        ({dayGroup.expensesCount}{" "}
-                        {dayGroup.expensesCount === 1
-                          ? "výdaj"
-                          : dayGroup.expensesCount < 5
-                          ? "výdaje"
-                          : "výdajů"}
-                        )
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Svislá časová osa položek pro tento den */}
-                <div className="relative pl-6 sm:pl-8 before:absolute before:left-[9px] sm:before:left-[9px] before:top-4 before:bottom-4 before:w-0.5 before:bg-slate-200 flex flex-col gap-3 pt-1">
-                  {dayGroup.entries.map((entry) => (
-                    <TimelineCard
-                      key={entry.id || `${entry.date}-${entry.title}`}
-                      entry={entry}
-                      onEdit={() => openEdit(entry)}
-                      onDelete={() => handleDelete(entry.id)}
-                      onPhotoClick={(img) => setLightboxImage(img)}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
+          /* Časová osa seskupená podle dnů — obalena DragDropContext */
+          <DragDropContext onDragEnd={handleDragEnd}>
+            <div className="flex flex-col gap-6">
+              {groupedDays.map((dayGroup) => (
+                <DaySection
+                  key={dayGroup.date}
+                  dayGroup={dayGroup}
+                  onEdit={openEdit}
+                  onDelete={handleDelete}
+                  onPhotoClick={(img) => setLightboxImage(img)}
+                />
+              ))}
+            </div>
+          </DragDropContext>
         )}
       </main>
 
@@ -1173,4 +1322,3 @@ export default function DiaryPage() {
     </div>
   );
 }
-

@@ -352,6 +352,7 @@ export interface DiaryEntry {
   time?: string; // např. "09:00" nebo "13:30"
   text?: string; // krátký popis, recenze nebo tip
   rating?: number; // 1-5 hvězdiček (volitelné)
+  order?: number; // Pořadí v rámci daného dne (0, 1, 2...) – slouží pro manuální D&D řazení
   expenseId?: string; // ID výdaje, ze kterého byl zápis vytvořen
   cost?: { amount: number; currency: string; czkAmount: number }; // Uložená částka pro zobrazení přímo v kartě deníku
   photoBase64?: string; // Komprimovaný Base64 datový řetězec (např. data:image/webp;base64,...)

@@ -12,6 +12,7 @@ import {
   orderBy,
   onSnapshot,
   getDocs,
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { DiaryEntry } from "@/lib/types";
@@ -69,6 +70,10 @@ export function normalizeDiaryEntry(id: string, data: Record<string, any>): Diar
       data.photoBase64 && typeof data.photoBase64 === "string"
         ? data.photoBase64
         : undefined,
+    order:
+      data.order !== undefined && data.order !== null && data.order !== ""
+        ? Number(data.order)
+        : undefined,
     createdAt: data.createdAt ?? new Date().toISOString(),
   };
 }
@@ -76,14 +81,22 @@ export function normalizeDiaryEntry(id: string, data: Record<string, any>): Diar
 /**
  * Seřadí záznamy chronologicky:
  * 1. podle data vzestupně (např. 2026-10-10 < 2026-10-11)
- * 2. podle času vzestupně (např. "09:00" < "13:30")
- * 3. podle createdAt
+ * 2. v rámci jednoho dne: primárně podle `order` (manuální D&D pořadí)
+ * 3. fallback: čas (`time`), pak createdAt
  */
 export function sortDiaryEntriesChronologically(entries: DiaryEntry[]): DiaryEntry[] {
   return [...entries].sort((a, b) => {
     const dateCmp = (a.date || "").localeCompare(b.date || "");
     if (dateCmp !== 0) return dateCmp;
 
+    // Pokud oba mají order, použijeme ho
+    const aHasOrder = a.order !== undefined && a.order !== null;
+    const bHasOrder = b.order !== undefined && b.order !== null;
+    if (aHasOrder && bHasOrder) return (a.order as number) - (b.order as number);
+    if (aHasOrder && !bHasOrder) return -1;
+    if (!aHasOrder && bHasOrder) return 1;
+
+    // Fallback na čas
     const timeA = a.time || "";
     const timeB = b.time || "";
     if (timeA && timeB) {
@@ -177,5 +190,24 @@ export function subscribeToDiaryEntries(
       onError?.(err);
     }
   );
+}
+
+/**
+ * Atomicky uloží nové hodnoty `order` pro seznam záznamů jednoho dne.
+ * Používá Firestore WriteBatch pro minimální počet round-tripů.
+ *
+ * @param updates - pole { id: string; order: number } pro záznamy, jejichž pořadí se změnilo
+ */
+export async function batchUpdateDiaryOrder(
+  updates: Array<{ id: string; order: number }>
+): Promise<void> {
+  if (updates.length === 0) return;
+
+  const batch = writeBatch(db);
+  for (const { id, order } of updates) {
+    const ref = doc(db, DIARY_COL, id);
+    batch.update(ref, { order });
+  }
+  await batch.commit();
 }
 
