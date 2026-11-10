@@ -22,6 +22,7 @@ import {
   ReceiptText,
   BarChart3,
   BookOpen,
+  BookText,
   UtensilsCrossed,
   Train,
   Hotel,
@@ -91,6 +92,8 @@ export default function SearchPage() {
             merchant: data.merchant || undefined,
             createdAt: data.createdAt || new Date().toISOString(),
             paymentMethod: data.paymentMethod === "card" ? "card" : "cash",
+            addToDiary: Boolean(data.addToDiary),
+            diaryEntryId: data.diaryEntryId ? String(data.diaryEntryId) : undefined,
           };
         });
 
@@ -359,9 +362,19 @@ export default function SearchPage() {
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-bold text-slate-900 truncate">
-                        {expense.note}
-                      </p>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <p className="text-sm font-bold text-slate-900 truncate">
+                          {expense.note}
+                        </p>
+                        {(expense.diaryEntryId || expense.addToDiary) && (
+                          <span
+                            className="inline-flex items-center text-xs shrink-0 select-none cursor-help"
+                            title="Zapsáno v cestovním deníku (/diary)"
+                          >
+                            📖
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-1.5 text-[11px] text-slate-400 truncate mt-0.5">
                         <span className="font-medium text-slate-500">
                           {meta.label}
@@ -411,8 +424,8 @@ export default function SearchPage() {
       </main>
 
       {/* SPODNÍ NAVIGAČNÍ LIŠTA S AKTIVNÍ IKONOU SEARCH */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-lg">
-        <div className="max-w-md mx-auto sm:max-w-lg px-6 py-2.5 flex items-center justify-between">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-lg pointer-events-auto">
+        <div className="max-w-md mx-auto sm:max-w-lg px-4 sm:px-6 py-2 flex items-center justify-between">
           <Link
             href="/"
             className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-slate-600 transition-colors"
@@ -422,11 +435,11 @@ export default function SearchPage() {
           </Link>
 
           <Link
-            href="/stats"
-            className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-slate-600 transition-colors"
+            href="/diary"
+            className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-rose-600 transition-colors"
           >
-            <BarChart3 className="h-5 w-5" />
-            <span className="text-[10px]">Stats</span>
+            <BookText className="h-5 w-5" />
+            <span className="text-[10px]">Deník</span>
           </Link>
 
           <Link
@@ -435,6 +448,14 @@ export default function SearchPage() {
           >
             <BookOpen className="h-5 w-5" />
             <span className="text-[10px]">Služby</span>
+          </Link>
+
+          <Link
+            href="/stats"
+            className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-rose-600 transition-colors"
+          >
+            <BarChart3 className="h-5 w-5" />
+            <span className="text-[10px]">Stats</span>
           </Link>
 
           <Link

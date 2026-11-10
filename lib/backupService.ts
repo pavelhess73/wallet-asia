@@ -1,6 +1,6 @@
 import { Firestore, doc, setDoc, addDoc, collection } from "firebase/firestore";
 import { db as defaultDb } from "@/lib/firebase";
-import { Expense, ServiceEntry, CashWithdrawal } from "@/lib/types";
+import { Expense, ServiceEntry, CashWithdrawal, DiaryEntry } from "@/lib/types";
 import { convertToCZK } from "@/lib/currency";
 
 /**
@@ -59,12 +59,14 @@ export interface BackupPayload {
   expenses: Expense[];
   services: ServiceEntry[];
   cashWithdrawals?: CashWithdrawal[];
+  diaryEntries?: DiaryEntry[];
 }
 
 export interface RestoreResult {
   expensesRestored: number;
   servicesRestored: number;
   cashWithdrawalsRestored?: number;
+  diaryEntriesRestored?: number;
 }
 
 /**
@@ -73,7 +75,8 @@ export interface RestoreResult {
 export function exportData(
   expenses: Expense[],
   services: ServiceEntry[],
-  cashWithdrawals: CashWithdrawal[] = []
+  cashWithdrawals: CashWithdrawal[] = [],
+  diaryEntries: DiaryEntry[] = []
 ): void {
   const backup: BackupPayload = {
     version: 1,
@@ -81,6 +84,7 @@ export function exportData(
     expenses,
     services,
     cashWithdrawals,
+    diaryEntries,
   };
 
   const filename = `wallet-asia-backup-${formatDateYMD()}.json`;
@@ -197,14 +201,21 @@ export async function restoreFromJSON(
   const rawExpenses: unknown[] = Array.isArray(payload.expenses) ? payload.expenses : [];
   const rawServices: unknown[] = Array.isArray(payload.services) ? payload.services : [];
   const rawWithdrawals: unknown[] = Array.isArray(payload.cashWithdrawals) ? payload.cashWithdrawals : [];
+  const rawDiary: unknown[] = Array.isArray(payload.diaryEntries) ? payload.diaryEntries : [];
 
-  if (rawExpenses.length === 0 && rawServices.length === 0 && rawWithdrawals.length === 0) {
-    throw new Error("Soubor neobsahuje žádná data výdajů, služeb ani výběrů k obnovení.");
+  if (
+    rawExpenses.length === 0 &&
+    rawServices.length === 0 &&
+    rawWithdrawals.length === 0 &&
+    rawDiary.length === 0
+  ) {
+    throw new Error("Soubor neobsahuje žádná data výdajů, služeb, výběrů ani deníku k obnovení.");
   }
 
   let expensesRestored = 0;
   let servicesRestored = 0;
   let cashWithdrawalsRestored = 0;
+  let diaryEntriesRestored = 0;
 
   // 1. Obnova výdajů
   for (const expItem of rawExpenses) {
@@ -224,6 +235,8 @@ export async function restoreFromJSON(
       merchant: exp.merchant ? exp.merchant.toString().trim() : "",
       createdAt: (exp.createdAt || new Date().toISOString()).toString(),
       paymentMethod: exp.paymentMethod === "card" ? "card" : "cash",
+      addToDiary: exp.addToDiary !== undefined ? Boolean(exp.addToDiary) : undefined,
+      diaryEntryId: exp.diaryEntryId ? exp.diaryEntryId.toString().trim() : undefined,
     });
 
     if (exp.id && typeof exp.id === "string") {
@@ -291,9 +304,51 @@ export async function restoreFromJSON(
     cashWithdrawalsRestored++;
   }
 
+  // 4. Obnova záznamů cestovního deníku
+  for (const dItem of rawDiary) {
+    if (!dItem || typeof dItem !== "object") continue;
+    const d = dItem as Record<string, unknown>;
+
+    const cleanDiary = sanitizeFirestoreData({
+      date: (d.date || new Date().toISOString().split("T")[0]).toString(),
+      dayNumber:
+        d.dayNumber !== undefined && d.dayNumber !== null && !isNaN(Number(d.dayNumber))
+          ? Number(d.dayNumber)
+          : undefined,
+      location: (d.location || "").toString().trim(),
+      category: (d.category || "note").toString(),
+      title: (d.title || "").toString().trim(),
+      time: d.time ? d.time.toString().trim() : undefined,
+      text: d.text ? d.text.toString().trim() : undefined,
+      rating:
+        d.rating !== undefined && d.rating !== null && !isNaN(Number(d.rating))
+          ? Number(d.rating)
+          : undefined,
+      expenseId: d.expenseId ? d.expenseId.toString().trim() : undefined,
+      cost:
+        d.cost && typeof d.cost === "object"
+          ? {
+              amount: Number((d.cost as any).amount) || 0,
+              currency: ((d.cost as any).currency || "CZK").toString(),
+              czkAmount: Number((d.cost as any).czkAmount) || 0,
+            }
+          : undefined,
+      photoBase64: d.photoBase64 && typeof d.photoBase64 === "string" ? d.photoBase64 : undefined,
+      createdAt: (d.createdAt || new Date().toISOString()).toString(),
+    });
+
+    if (d.id && typeof d.id === "string") {
+      await setDoc(doc(targetDb, "diary", d.id), cleanDiary, { merge: true });
+    } else {
+      await addDoc(collection(targetDb, "diary"), cleanDiary);
+    }
+    diaryEntriesRestored++;
+  }
+
   return {
     expensesRestored,
     servicesRestored,
     cashWithdrawalsRestored,
+    diaryEntriesRestored,
   };
 }

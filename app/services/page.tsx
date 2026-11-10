@@ -42,6 +42,7 @@ import {
   ReceiptText,
   BarChart3,
   BookOpen,
+  BookText,
   Search,
   Pencil,
   Trash2,
@@ -823,10 +824,13 @@ function ServicesContent() {
         </div>
       )}
 
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-lg">
-        <div className="max-w-md mx-auto sm:max-w-lg px-6 py-2 flex items-center justify-between">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-lg pointer-events-auto">
+        <div className="max-w-md mx-auto sm:max-w-lg px-4 sm:px-6 py-2 flex items-center justify-between">
           <Link href="/" className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-slate-600 transition-colors">
             <ReceiptText className="h-5 w-5" /><span className="text-[10px]">Entries</span>
+          </Link>
+          <Link href="/diary" className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-rose-600 transition-colors">
+            <BookText className="h-5 w-5" /><span className="text-[10px]">Deník</span>
           </Link>
           <Link href="/services" className="flex flex-col items-center gap-0.5 text-rose-600 font-bold" aria-current="page">
             <BookOpen className="h-5 w-5" /><span className="text-[10px]">Služby</span>

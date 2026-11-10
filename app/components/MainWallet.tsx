@@ -23,9 +23,11 @@ import {
   PaymentMethod,
   CashWithdrawal,
   ServiceEntry,
+  mapExpenseCategoryToDiaryCategory,
 } from "@/lib/types";
 import { subscribeToCashWithdrawals } from "@/lib/cashWithdrawalsStore";
 import { subscribeToServices } from "@/lib/servicesStore";
+import { addDiaryEntry, updateDiaryEntry } from "@/lib/diaryService";
 import CashWalletCard from "@/app/components/CashWalletCard";
 import CashWithdrawalsModal from "@/app/components/CashWithdrawalsModal";
 import {
@@ -59,12 +61,15 @@ import {
   ReceiptText,
   BarChart3,
   BookOpen,
+  BookText,
   Search,
   Pencil,
   Trash2,
   Calculator,
   Banknote,
   CreditCard,
+  MapPin,
+  Star,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
@@ -165,6 +170,19 @@ export default function MainWallet() {
   const [manualCategory, setManualCategory] = useState<ExpenseCategory>("Gastro");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
 
+  // Stav pro propojení s Cestovním deníkem (/diary)
+  const [addToDiary, setAddToDiary] = useState<boolean>(false);
+  const [diaryLocation, setDiaryLocation] = useState<string>("");
+  const [diaryRating, setDiaryRating] = useState<number>(0);
+  const [diaryNote, setDiaryNote] = useState<string>("");
+
+  const getLastDiaryLocation = (): string => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("vallet_last_diary_loc") || "Chiang Mai";
+    }
+    return "Chiang Mai";
+  };
+
   // Stav pro aktuální měnové kurzy
   const [rates, setRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
 
@@ -207,6 +225,8 @@ export default function MainWallet() {
             merchant: data.merchant || undefined,
             createdAt: data.createdAt || new Date().toISOString(),
             paymentMethod: data.paymentMethod === "card" ? "card" : "cash",
+            addToDiary: Boolean(data.addToDiary),
+            diaryEntryId: data.diaryEntryId ? String(data.diaryEntryId) : undefined,
           };
         });
 
@@ -341,6 +361,10 @@ export default function MainWallet() {
     setMerchant("");
     setManualCategory("Gastro");
     setPaymentMethod("cash");
+    setAddToDiary(false);
+    setDiaryLocation(getLastDiaryLocation());
+    setDiaryRating(0);
+    setDiaryNote("");
     setIsManualModalOpen(true);
     setTimeout(() => {
       amountInputRef.current?.focus();
@@ -355,6 +379,10 @@ export default function MainWallet() {
     setNote(preset.defaultNote);
     setMerchant(preset.defaultMerchant || "");
     setPaymentMethod("cash");
+    setAddToDiary(false);
+    setDiaryLocation(getLastDiaryLocation());
+    setDiaryRating(0);
+    setDiaryNote("");
     if (preset.defaultCurrency) {
       setCurrency(preset.defaultCurrency);
     }
@@ -374,6 +402,10 @@ export default function MainWallet() {
     const def = getCategoryDefinition(expense.category);
     setManualCategory(def.id);
     setPaymentMethod(expense.paymentMethod || "cash");
+    setAddToDiary(Boolean(expense.diaryEntryId || expense.addToDiary));
+    setDiaryLocation(getLastDiaryLocation());
+    setDiaryRating(0);
+    setDiaryNote("");
     setIsManualModalOpen(true);
     setTimeout(() => {
       amountInputRef.current?.focus();
@@ -426,6 +458,7 @@ export default function MainWallet() {
           category: manualCategory,
           note: note.trim(),
           paymentMethod,
+          addToDiary,
         };
 
         if (merchant.trim()) {
@@ -434,10 +467,68 @@ export default function MainWallet() {
           updatePayload.merchant = "";
         }
 
+        // Zpracování propojení s deníkem při úpravě
+        if (addToDiary) {
+          const finalLocation = diaryLocation.trim() || getLastDiaryLocation();
+          const diaryCategory = mapExpenseCategoryToDiaryCategory(manualCategory);
+          const detailText = diaryNote.trim()
+            ? diaryNote.trim()
+            : merchant.trim()
+            ? `Podnik: ${merchant.trim()}`
+            : undefined;
+
+          if (editingExpense.diaryEntryId) {
+            // Aktualizace existujícího záznamu v deníku
+            await updateDiaryEntry(editingExpense.diaryEntryId, {
+              title: note.trim(),
+              category: diaryCategory,
+              location: finalLocation,
+              text: detailText,
+              rating: diaryRating > 0 ? diaryRating : undefined,
+              cost: {
+                amount: numAmount,
+                currency,
+                czkAmount: calculatedCZK,
+              },
+            });
+          } else {
+            // Nově přidáno do deníku z existujícího výdaje
+            const expenseDate =
+              (editingExpense.createdAt || "").split("T")[0] ||
+              new Date().toISOString().split("T")[0];
+            const diaryDocId = await addDiaryEntry({
+              date: expenseDate,
+              time: new Intl.DateTimeFormat("cs-CZ", {
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false,
+              }).format(new Date()),
+              location: finalLocation,
+              category: diaryCategory,
+              title: note.trim(),
+              text: detailText,
+              rating: diaryRating > 0 ? diaryRating : undefined,
+              expenseId: editingExpense.id,
+              cost: {
+                amount: numAmount,
+                currency,
+                czkAmount: calculatedCZK,
+              },
+              createdAt: editingExpense.createdAt || new Date().toISOString(),
+            });
+            updatePayload.diaryEntryId = diaryDocId;
+          }
+
+          if (finalLocation && typeof window !== "undefined") {
+            localStorage.setItem("vallet_last_diary_loc", finalLocation);
+          }
+        }
+
         await updateDoc(expenseRef, updatePayload);
         showSuccess(`Výdaj upraven: ${note.trim()} (${formatCZK(calculatedCZK)})`);
       } else {
-        // PŘIDÁNÍ NOVÉHO VÝDAJE
+        // PŘIDÁNÍ NOVÉHO VÝDAJE (Transakční zápis)
+        const nowIso = new Date().toISOString();
         const expensePayload: Record<string, unknown> = {
           amountOriginal: numAmount,
           currency,
@@ -445,15 +536,65 @@ export default function MainWallet() {
           category: manualCategory,
           note: note.trim(),
           paymentMethod,
-          createdAt: new Date().toISOString(),
+          createdAt: nowIso,
+          addToDiary,
         };
 
         if (merchant.trim()) {
           expensePayload.merchant = merchant.trim();
         }
 
-        await addDoc(collection(db, "expenses"), expensePayload);
-        showSuccess(`Přidán výdaj: ${note.trim()} (${formatCZK(calculatedCZK)})`);
+        const newDocRef = await addDoc(collection(db, "expenses"), expensePayload);
+
+        // Pokud bylo zaškrtnuto addToDiary:
+        // 1. Vytvoř odpovídající dokument v kolekci diary
+        // 2. Zapiš zpětně diaryEntryId do vytvořeného výdaje
+        if (addToDiary) {
+          const diaryCategory = mapExpenseCategoryToDiaryCategory(manualCategory);
+          const diaryDate = nowIso.split("T")[0];
+          const diaryTime = new Intl.DateTimeFormat("cs-CZ", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          }).format(new Date());
+
+          const finalLocation = diaryLocation.trim() || getLastDiaryLocation();
+          const detailText = diaryNote.trim()
+            ? diaryNote.trim()
+            : merchant.trim()
+            ? `Podnik: ${merchant.trim()}`
+            : undefined;
+
+          const diaryDocId = await addDiaryEntry({
+            date: diaryDate,
+            time: diaryTime,
+            location: finalLocation,
+            category: diaryCategory,
+            title: note.trim(),
+            text: detailText,
+            rating: diaryRating > 0 ? diaryRating : undefined,
+            expenseId: newDocRef.id,
+            cost: {
+              amount: numAmount,
+              currency,
+              czkAmount: calculatedCZK,
+            },
+            createdAt: nowIso,
+          });
+
+          // Zpětný zápis do vytvořeného výdaje
+          await updateDoc(newDocRef, { diaryEntryId: diaryDocId });
+
+          if (finalLocation && typeof window !== "undefined") {
+            localStorage.setItem("vallet_last_diary_loc", finalLocation);
+          }
+        }
+
+        showSuccess(
+          addToDiary
+            ? `Přidán výdaj a zapsán do deníku 📖 (${formatCZK(calculatedCZK)})`
+            : `Přidán výdaj: ${note.trim()} (${formatCZK(calculatedCZK)})`
+        );
       }
 
       // Vyčištění a zavření
@@ -461,6 +602,9 @@ export default function MainWallet() {
       setNote("");
       setMerchant("");
       setPaymentMethod("cash");
+      setAddToDiary(false);
+      setDiaryRating(0);
+      setDiaryNote("");
       setEditingExpense(null);
       setIsManualModalOpen(false);
     } catch (error) {
@@ -638,9 +782,19 @@ export default function MainWallet() {
 
                           {/* Popis a detail */}
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-bold text-slate-900 truncate group-hover:text-rose-600 transition-colors">
-                              {expense.note}
-                            </p>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <p className="text-sm font-bold text-slate-900 truncate group-hover:text-rose-600 transition-colors">
+                                {expense.note}
+                              </p>
+                              {(expense.diaryEntryId || expense.addToDiary) && (
+                                <span
+                                  className="inline-flex items-center text-xs shrink-0 select-none cursor-help"
+                                  title="Zapsáno v cestovním deníku (/diary)"
+                                >
+                                  📖
+                                </span>
+                              )}
+                            </div>
                             <div className="flex items-center gap-1.5 text-[11px] text-slate-400 truncate mt-0.5">
                               <span className="font-medium text-slate-500">
                                 {def.label}
@@ -762,9 +916,9 @@ export default function MainWallet() {
           </button>
         </div>
 
-        {/* Spodní elegantní navigace: Entries, Služby, Stats, Search */}
+        {/* Spodní elegantní navigace: Entries, Deník, Služby, Stats, Search */}
         <nav className="bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-lg pointer-events-auto">
-          <div className="max-w-md mx-auto sm:max-w-lg px-6 py-2 flex items-center justify-between">
+          <div className="max-w-md mx-auto sm:max-w-lg px-4 sm:px-6 py-2 flex items-center justify-between">
             <Link
               href="/"
               className="flex flex-col items-center gap-0.5 text-rose-600 font-bold transition-colors"
@@ -772,6 +926,14 @@ export default function MainWallet() {
             >
               <ReceiptText className="h-5 w-5" />
               <span className="text-[10px]">Entries</span>
+            </Link>
+
+            <Link
+              href="/diary"
+              className="flex flex-col items-center gap-0.5 text-slate-400 hover:text-rose-600 transition-colors"
+            >
+              <BookText className="h-5 w-5" />
+              <span className="text-[10px]">Deník</span>
             </Link>
 
             <Link
@@ -1035,6 +1197,105 @@ export default function MainWallet() {
                     className="w-full rounded-xl border border-slate-200 bg-slate-50/50 pl-9 pr-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-500 focus:bg-white"
                   />
                 </div>
+              </div>
+
+              {/* Propojení s Cestovním deníkem (/diary) */}
+              <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-50 to-rose-50/20 p-3.5 transition-all">
+                <label className="flex items-center justify-between cursor-pointer select-none">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-xl">📖</span>
+                    <div>
+                      <span className="text-xs sm:text-sm font-bold text-slate-900 block">
+                        Přidat také do deníku cesty
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        Zaznamená se na časovou osu v sekci Deník (/diary)
+                      </span>
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={addToDiary}
+                    onChange={(e) => setAddToDiary(e.target.checked)}
+                    className="h-5 w-5 rounded-md border-slate-300 text-rose-600 focus:ring-rose-400 accent-rose-600 cursor-pointer"
+                  />
+                </label>
+
+                {addToDiary && (
+                  <div className="mt-3 pt-3 border-t border-slate-200/70 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
+                    {/* Lokace / Místo */}
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                        Lokace / Místo
+                      </label>
+                      <div className="relative">
+                        <MapPin className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="např. Chiang Mai, Pai, Bangkok..."
+                          value={diaryLocation}
+                          onChange={(e) => setDiaryLocation(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 py-2 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Dojem / Hodnocení & poznámka pro deník */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                          Dojem / Hodnocení <span className="text-slate-400 lowercase">(volitelné)</span>
+                        </label>
+                        {diaryRating > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setDiaryRating(0)}
+                            className="text-[10px] text-slate-400 hover:text-rose-500 underline"
+                          >
+                            zrušit
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 py-0.5">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            type="button"
+                            onClick={() => setDiaryRating(star === diaryRating ? 0 : star)}
+                            className="p-1 hover:scale-110 transition-transform cursor-pointer"
+                            title={`Hodnotit ${star}/5`}
+                          >
+                            <Star
+                              className={`h-5 w-5 ${
+                                diaryRating >= star
+                                  ? "fill-amber-400 text-amber-400"
+                                  : "fill-transparent text-slate-300"
+                              }`}
+                            />
+                          </button>
+                        ))}
+                        {diaryRating > 0 && (
+                          <span className="text-xs font-bold text-amber-600 ml-1.5">
+                            {diaryRating}/5
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                        Poznámka pro deník <span className="text-slate-400 lowercase">(pokud se liší od popisu výdaje)</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Např. Skvělé posezení u řeky, doporučuji vyzkoušet"
+                        value={diaryNote}
+                        onChange={(e) => setDiaryNote(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-rose-500"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Odeslat tlačítko */}

@@ -221,6 +221,8 @@ export const ExpenseSchema = z.object({
   merchant: z.string().optional(),
   createdAt: z.string(),
   paymentMethod: PaymentMethodSchema.optional(),
+  addToDiary: z.boolean().optional(),
+  diaryEntryId: z.string().optional(),
 });
 
 export type Expense = z.infer<typeof ExpenseSchema>;
@@ -335,4 +337,118 @@ export interface CashWithdrawal {
   note?: string; // Poznámka (např. Bangkok Bank, letiště...)
   createdAt: any;
 }
+
+// ─────────────────────────────────────────────
+//  Modul Cestovní Deník (Diary)
+// ─────────────────────────────────────────────
+
+export interface DiaryEntry {
+  id?: string;
+  date: string; // YYYY-MM-DD
+  dayNumber?: number; // např. Den 1, Den 2...
+  location: string; // např. Chiang Mai, Luang Prabang, Hanoi
+  category: 'transport' | 'stay' | 'food_highlight' | 'note';
+  title: string; // např. Půjčení skútru Honda Click, Green Tiger House, Khao Soi Mae Sai
+  time?: string; // např. "09:00" nebo "13:30"
+  text?: string; // krátký popis, recenze nebo tip
+  rating?: number; // 1-5 hvězdiček (volitelné)
+  expenseId?: string; // ID výdaje, ze kterého byl zápis vytvořen
+  cost?: { amount: number; currency: string; czkAmount: number }; // Uložená částka pro zobrazení přímo v kartě deníku
+  photoBase64?: string; // Komprimovaný Base64 datový řetězec (např. data:image/webp;base64,...)
+  createdAt: any;
+}
+
+/**
+ * Mapování kategorií výdaje na deník:
+ * - Jídlo / Pivo -> food_highlight
+ * - Doprava -> transport
+ * - Ubytování -> stay
+ * - Ostatní -> note
+ */
+export function mapExpenseCategoryToDiaryCategory(
+  expenseCategory: string
+): DiaryCategory {
+  const norm = (expenseCategory || "").toLowerCase().trim();
+  if (
+    norm.includes("gastro") ||
+    norm.includes("bar") ||
+    norm.includes("jídlo") ||
+    norm.includes("jidlo") ||
+    norm.includes("food") ||
+    norm.includes("pivo") ||
+    norm.includes("drink") ||
+    norm.includes("oběd") ||
+    norm.includes("večeře")
+  ) {
+    return "food_highlight";
+  }
+  if (
+    norm.includes("doprav") ||
+    norm.includes("transport") ||
+    norm.includes("vlak") ||
+    norm.includes("taxi") ||
+    norm.includes("skútr") ||
+    norm.includes("grab") ||
+    norm.includes("letenk")
+  ) {
+    return "transport";
+  }
+  if (
+    norm.includes("ubytov") ||
+    norm.includes("hotel") ||
+    norm.includes("hostel") ||
+    norm.includes("stay") ||
+    norm.includes("accommodat")
+  ) {
+    return "stay";
+  }
+  return "note";
+}
+
+export type DiaryCategory = DiaryEntry['category'];
+
+export interface DiaryCategoryConfig {
+  id: DiaryCategory;
+  label: string;
+  emoji: string;
+  badgeBg: string;
+  dotBg: string;
+  cardBorder: string;
+}
+
+export const DIARY_CATEGORY_CONFIGS: Record<DiaryCategory, DiaryCategoryConfig> = {
+  transport: {
+    id: 'transport',
+    label: 'Doprava',
+    emoji: '🛵',
+    badgeBg: 'bg-orange-50 text-orange-700 border-orange-200',
+    dotBg: 'bg-orange-500',
+    cardBorder: 'border-orange-100',
+  },
+  stay: {
+    id: 'stay',
+    label: 'Ubytování',
+    emoji: '🏨',
+    badgeBg: 'bg-blue-50 text-blue-700 border-blue-200',
+    dotBg: 'bg-blue-500',
+    cardBorder: 'border-blue-100',
+  },
+  food_highlight: {
+    id: 'food_highlight',
+    label: 'Jídlo & Highlight',
+    emoji: '🍜',
+    badgeBg: 'bg-rose-50 text-rose-700 border-rose-200',
+    dotBg: 'bg-rose-500',
+    cardBorder: 'border-rose-100',
+  },
+  note: {
+    id: 'note',
+    label: 'Zápisek dne',
+    emoji: '📝',
+    badgeBg: 'bg-slate-50 text-slate-700 border-slate-200',
+    dotBg: 'bg-slate-500',
+    cardBorder: 'border-slate-100',
+  },
+};
+
 
