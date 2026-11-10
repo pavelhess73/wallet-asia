@@ -19,6 +19,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.17",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
